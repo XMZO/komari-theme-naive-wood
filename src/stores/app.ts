@@ -109,6 +109,15 @@ const useAppStore = defineStore('app', () => {
     return true
   })
 
+  // 计算属性：离线节点是否排在最后
+  const offlineNodesLast = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.offlineNodesLast === 'boolean') {
+      return settings.offlineNodesLast
+    }
+    return false
+  })
+
   // 计算属性：页面布局配置
   const fullWidth = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -357,6 +366,15 @@ const useAppStore = defineStore('app', () => {
       }
     }
     return 'day'
+  })
+
+  // 计算属性：运行时间是否使用短单位
+  const uptimeShortUnit = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.uptimeShortUnit === 'boolean') {
+      return settings.uptimeShortUnit
+    }
+    return false
   })
 
   // 计算属性：亮色模式卡片高对比度
@@ -619,6 +637,7 @@ const useAppStore = defineStore('app', () => {
     defaultViewMode,
     rpcTransportMode,
     showLoginButton,
+    offlineNodesLast,
     fullWidth,
     maxPageWidth,
     cardProgressLayout,
@@ -636,6 +655,7 @@ const useAppStore = defineStore('app', () => {
     tagsInSeparateRow,
     uptimeTagWrap,
     uptimeFormat,
+    uptimeShortUnit,
     lightCardContrast,
     trafficSplitColor,
     byteDecimals,

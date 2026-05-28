@@ -26,7 +26,7 @@ onMounted(() => {
 // 格式化函数
 const formatBytes = (bytes: number) => formatBytesWithConfig(bytes, appStore.byteDecimals)
 const formatBytesPerSecond = (bytes: number) => formatBytesPerSecondWithConfig(bytes, appStore.byteDecimals)
-const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat)
+const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat, appStore.uptimeShortUnit ? 'short' : 'long')
 
 // 视图切换：load 或 ping
 const chartView = ref<'load' | 'ping'>('load')

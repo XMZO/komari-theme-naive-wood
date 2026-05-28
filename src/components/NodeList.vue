@@ -48,14 +48,25 @@ function handleSort(col: string) {
   }
 }
 
+function compareOfflineNodesLast(a: NodeData, b: NodeData) {
+  if (!appStore.offlineNodesLast || a.online === b.online)
+    return 0
+  return a.online ? -1 : 1
+}
+
 // 排序后的节点列表
 const sortedNodes = computed(() => {
   const nodes = [...props.nodes]
   const key = sortKey.value
   const dir = sortDir.value
-  if (!key)
+  if (!key) {
+    if (appStore.offlineNodesLast) {
+      nodes.sort(compareOfflineNodesLast)
+    }
     return nodes
-  return nodes.sort((a, b) => {
+  }
+
+  nodes.sort((a, b) => {
     switch (key) {
       case 'status':
         return dir * ((a.online ? 1 : 0) - (b.online ? 1 : 0))
@@ -96,6 +107,12 @@ const sortedNodes = computed(() => {
         return 0
     }
   })
+
+  if (appStore.offlineNodesLast) {
+    nodes.sort(compareOfflineNodesLast)
+  }
+
+  return nodes
 })
 
 // 列可见性计算
@@ -104,7 +121,7 @@ const columns = computed(() => appStore.listViewColumns)
 // 格式化函数
 const formatBytes = (bytes: number) => formatBytesWithConfig(bytes, appStore.byteDecimals)
 const formatBytesPerSecond = (bytes: number) => formatBytesPerSecondWithConfig(bytes, appStore.byteDecimals)
-const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat)
+const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat, appStore.uptimeShortUnit ? 'short' : 'long')
 
 // 动态生成 grid 样式，使用配置的列宽度和间距
 const gridStyle = computed(() => {
@@ -533,10 +550,16 @@ const columnTitles: Record<string, string> = {
                   <template #trigger>
                     <div class="flex flex-col gap-0.5 w-full" :class="{ 'cursor-help': !isTouchDevice }" @click.stop>
                       <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
-                        <NText v-if="showTrafficProgress(node)">{{ getTrafficUsedPercentage(node).toFixed(1) }}%</NText>
+                        <NText v-if="showTrafficProgress(node)">
+                          {{ getTrafficUsedPercentage(node).toFixed(1) }}%
+                        </NText>
                         <div class="flex-1" />
                         <NText :depth="3">
-                          {{ formatBytes(getTrafficUsed(node)) }} / <template v-if="showTrafficProgress(node)">{{ formatBytes(node.traffic_limit) }}</template><template v-else>∞</template>
+                          {{ formatBytes(getTrafficUsed(node)) }} / <template v-if="showTrafficProgress(node)">
+                            {{ formatBytes(node.traffic_limit) }}
+                          </template><template v-else>
+                            ∞
+                          </template>
                         </NText>
                       </div>
                       <!-- 统一使用 TrafficProgress 组件，自动根据类型选择颜色 -->

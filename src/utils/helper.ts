@@ -13,6 +13,7 @@ const TIME_UNITS = [
 
 /** 运行时间格式化精度类型 */
 export type UptimeFormat = 'day' | 'hour' | 'minute' | 'second'
+export type UptimeUnitStyle = 'long' | 'short'
 
 /** 字节格式化精度配置 */
 export interface ByteDecimalsConfig {
@@ -197,9 +198,9 @@ export function formatUptime(seconds: number): string {
  * - 'second': 显示天、小时、分钟、秒（如 "2 天 3 小时 15 分钟 30 秒"）
  * @returns 格式化后的字符串
  */
-export function formatUptimeWithFormat(seconds: number, format: UptimeFormat = 'day'): string {
+export function formatUptimeWithFormat(seconds: number, format: UptimeFormat = 'day', unitStyle: UptimeUnitStyle = 'long'): string {
   if (!seconds || seconds <= 0)
-    return '0 秒'
+    return unitStyle === 'short' ? '0s' : '0 秒'
 
   // 根据格式确定最大单位索引（从天开始）
   const formatMaxUnitIndexMap: Record<UptimeFormat, number> = {
@@ -220,7 +221,9 @@ export function formatUptimeWithFormat(seconds: number, format: UptimeFormat = '
     const { value, label } = unit
     const amount = Math.floor(remaining / value)
     if (amount > 0) {
-      parts.push(`${amount} ${label}`)
+      const displayLabel = unitStyle === 'short' ? formatTimeUnitShortLabel(label) : label
+      const separator = unitStyle === 'short' ? '' : ' '
+      parts.push(`${amount}${separator}${displayLabel}`)
       remaining %= value
     }
     // 达到最大单位索引时停止
@@ -233,10 +236,23 @@ export function formatUptimeWithFormat(seconds: number, format: UptimeFormat = '
   if (parts.length === 0) {
     const fallbackUnit = TIME_UNITS[maxUnitIndex]
     const fallbackLabel = fallbackUnit?.label ?? '秒'
+    if (unitStyle === 'short') {
+      return `<1${formatTimeUnitShortLabel(fallbackLabel)}`
+    }
     return `不足 1 ${fallbackLabel}`
   }
 
   return parts.join(' ')
+}
+
+function formatTimeUnitShortLabel(label: string): string {
+  const labels: Record<string, string> = {
+    天: 'd',
+    小时: 'h',
+    分钟: 'm',
+    秒: 's',
+  }
+  return labels[label] ?? label
 }
 
 /**

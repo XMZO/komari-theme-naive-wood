@@ -29,7 +29,7 @@ const showPingChart = ref(false)
 // 格式化函数
 const formatBytes = (bytes: number) => formatBytesWithConfig(bytes, appStore.byteDecimals)
 const formatBytesPerSecond = (bytes: number) => formatBytesPerSecondWithConfig(bytes, appStore.byteDecimals)
-const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat)
+const formatUptime = (seconds: number) => formatUptimeWithFormat(seconds, appStore.uptimeFormat, appStore.uptimeShortUnit ? 'short' : 'long')
 const offlineTime = computed(() => formatDateTime(props.node.time))
 
 // 计算统计信息

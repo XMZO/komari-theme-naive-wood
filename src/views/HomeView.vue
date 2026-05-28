@@ -133,6 +133,14 @@ const nodeList = computed(() => {
     filteredNodes = filteredNodes.filter(node => isNodeMatchSearch(node, debouncedSearchText.value))
   }
 
+  if (appStore.offlineNodesLast) {
+    filteredNodes = [...filteredNodes].sort((a, b) => {
+      if (a.online === b.online)
+        return 0
+      return a.online ? -1 : 1
+    })
+  }
+
   return filteredNodes
 })
 
