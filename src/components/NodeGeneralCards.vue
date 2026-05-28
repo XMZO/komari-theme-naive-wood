@@ -2,6 +2,7 @@
 import { useNow } from '@vueuse/core'
 import { NCard, NText } from 'naive-ui'
 import { computed } from 'vue'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytesPerSecondSplit, formatBytesSplit } from '@/utils/helper'
@@ -68,189 +69,220 @@ const cardBlurClass = computed(() => {
     return 'glass-20'
   return `glass-${radius}`
 })
+
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>
 
 <template>
   <div class="general-info p-4 flex flex-col gap-2 sm:p-4 sm:gap-4 lg:grid lg:grid-cols-5" :class="{ 'light-general-contrast': appStore.lightCardContrast && !appStore.isDark }">
     <!-- 当前时间 -->
-    <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
-      <!-- 移动端单行显示 -->
-      <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
-        <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
-          <div class="i-icon-park-outline-time" />
-          当前时间
-        </NText>
-        <NText class="text-base font-bold m-0">
-          {{ currentTime }}
-        </NText>
-      </div>
-      <!-- 桌面端垂直布局 -->
-      <div class="flex-col h-full hidden justify-between sm:flex">
-        <div :style="{ fontFamily: appStore.numberFontFamily }">
-          <NText class="text-2xl font-bold m-0">
+    <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
+      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+        <!-- 移动端单行显示 -->
+        <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
+          <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
+            <div class="i-icon-park-outline-time" />
+            当前时间
+          </NText>
+          <NText class="text-base font-bold m-0">
             {{ currentTime }}
           </NText>
         </div>
-        <NText :depth="3" class="text-xs flex gap-1 items-center">
-          <div class="i-icon-park-outline-time" />
-          当前时间
-        </NText>
-      </div>
-    </NCard>
+        <!-- 桌面端垂直布局 -->
+        <div class="flex-col h-full hidden justify-between sm:flex">
+          <div :style="{ fontFamily: appStore.numberFontFamily }">
+            <NText class="text-2xl font-bold m-0">
+              {{ currentTime }}
+            </NText>
+          </div>
+          <NText :depth="3" class="text-xs flex gap-1 items-center">
+            <div class="i-icon-park-outline-time" />
+            当前时间
+          </NText>
+        </div>
+      </NCard>
+    </LiquidGlassSurface>
 
     <!-- 在线节点 -->
-    <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
-      <!-- 移动端单行显示 -->
-      <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
-        <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
-          <div class="i-icon-park-outline-heartbeat" />
-          在线节点
-        </NText>
-        <div class="flex items-baseline">
-          <NText class="text-base font-bold m-0">
-            {{ onlineNodeCount }}
+    <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
+      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+        <!-- 移动端单行显示 -->
+        <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
+          <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
+            <div class="i-icon-park-outline-heartbeat" />
+            在线节点
           </NText>
-          <NText :depth="3" class="text-xs m-0 p-1">
-            /
-          </NText>
-          <NText :depth="3" class="text-xs m-0">
-            {{ nodesStore.nodes.length }}
+          <div class="flex items-baseline">
+            <NText class="text-base font-bold m-0">
+              {{ onlineNodeCount }}
+            </NText>
+            <NText :depth="3" class="text-xs m-0 p-1">
+              /
+            </NText>
+            <NText :depth="3" class="text-xs m-0">
+              {{ nodesStore.nodes.length }}
+            </NText>
+          </div>
+        </div>
+        <!-- 桌面端垂直布局 -->
+        <div class="flex-col h-full hidden justify-between sm:flex">
+          <div :style="{ fontFamily: appStore.numberFontFamily }">
+            <NText class="text-2xl font-bold m-0">
+              {{ onlineNodeCount }}
+            </NText>
+            <NText :depth="3" class="text-xs m-0 p-1">
+              /
+            </NText>
+            <NText :depth="3" class="text-xs m-0">
+              {{ nodesStore.nodes.length }}
+            </NText>
+          </div>
+          <NText :depth="3" class="text-xs flex gap-1 items-center">
+            <div class="i-icon-park-outline-heartbeat" />
+            在线节点
           </NText>
         </div>
-      </div>
-      <!-- 桌面端垂直布局 -->
-      <div class="flex-col h-full hidden justify-between sm:flex">
-        <div :style="{ fontFamily: appStore.numberFontFamily }">
-          <NText class="text-2xl font-bold m-0">
-            {{ onlineNodeCount }}
-          </NText>
-          <NText :depth="3" class="text-xs m-0 p-1">
-            /
-          </NText>
-          <NText :depth="3" class="text-xs m-0">
-            {{ nodesStore.nodes.length }}
-          </NText>
-        </div>
-        <NText :depth="3" class="text-xs flex gap-1 items-center">
-          <div class="i-icon-park-outline-heartbeat" />
-          在线节点
-        </NText>
-      </div>
-    </NCard>
+      </NCard>
+    </LiquidGlassSurface>
 
     <!-- 点亮区域 -->
-    <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
-      <!-- 移动端单行显示 -->
-      <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
-        <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
-          <div class="i-icon-park-outline-world" />
-          点亮区域
-        </NText>
-        <NText class="text-base font-bold m-0">
-          {{ onlineRegionCount }}
-        </NText>
-      </div>
-      <!-- 桌面端垂直布局 -->
-      <div class="flex-col h-full hidden justify-between sm:flex">
-        <div :style="{ fontFamily: appStore.numberFontFamily }">
-          <NText class="text-2xl font-bold m-0">
+    <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
+      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+        <!-- 移动端单行显示 -->
+        <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
+          <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
+            <div class="i-icon-park-outline-world" />
+            点亮区域
+          </NText>
+          <NText class="text-base font-bold m-0">
             {{ onlineRegionCount }}
           </NText>
         </div>
-        <NText :depth="3" class="text-xs flex gap-1 items-center">
-          <div class="i-icon-park-outline-world" />
-          点亮区域
-        </NText>
-      </div>
-    </NCard>
+        <!-- 桌面端垂直布局 -->
+        <div class="flex-col h-full hidden justify-between sm:flex">
+          <div :style="{ fontFamily: appStore.numberFontFamily }">
+            <NText class="text-2xl font-bold m-0">
+              {{ onlineRegionCount }}
+            </NText>
+          </div>
+          <NText :depth="3" class="text-xs flex gap-1 items-center">
+            <div class="i-icon-park-outline-world" />
+            点亮区域
+          </NText>
+        </div>
+      </NCard>
+    </LiquidGlassSurface>
 
     <!-- 流量总览 -->
-    <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
-      <!-- 移动端单行显示 -->
-      <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
-        <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
-          <div class="i-icon-park-outline-transfer-data" />
-          流量总览
-        </NText>
-        <div class="flex gap-3">
-          <div class="flex gap-0.5 items-baseline">
-            <div class="i-icon-park-outline-upload text-xs self-center" />
-            <span class="text-sm font-bold">{{ formattedTrafficUp.value }}</span>
-            <span class="text-[10px] text-[--n-text-color-3]">{{ formattedTrafficUp.unit }}</span>
-          </div>
-          <div class="flex gap-0.5 items-baseline">
-            <div class="i-icon-park-outline-download text-xs self-center" />
-            <span class="text-sm font-bold">{{ formattedTrafficDown.value }}</span>
-            <span class="text-[10px] text-[--n-text-color-3]">{{ formattedTrafficDown.unit }}</span>
-          </div>
-        </div>
-      </div>
-      <!-- 桌面端垂直布局 -->
-      <div class="flex-col h-full hidden justify-between sm:flex">
-        <div class="flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
-          <div class="flex gap-1 items-baseline">
-            <div class="i-icon-park-outline-upload text-base shrink-0 self-center" />
-            <span class="text-xl font-bold">{{ formattedTrafficUp.value }}</span>
-            <span class="text-xs text-[--n-text-color-3]">{{ formattedTrafficUp.unit }}</span>
-          </div>
-          <div class="flex gap-1 items-baseline">
-            <div class="i-icon-park-outline-download text-base shrink-0 self-center" />
-            <span class="text-xl font-bold">{{ formattedTrafficDown.value }}</span>
-            <span class="text-xs text-[--n-text-color-3]">{{ formattedTrafficDown.unit }}</span>
+    <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
+      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+        <!-- 移动端单行显示 -->
+        <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
+          <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
+            <div class="i-icon-park-outline-transfer-data" />
+            流量总览
+          </NText>
+          <div class="flex gap-3">
+            <div class="flex gap-0.5 items-baseline">
+              <div class="i-icon-park-outline-upload text-xs self-center" />
+              <span class="text-sm font-bold">{{ formattedTrafficUp.value }}</span>
+              <span class="text-[10px] text-[--n-text-color-3]">{{ formattedTrafficUp.unit }}</span>
+            </div>
+            <div class="flex gap-0.5 items-baseline">
+              <div class="i-icon-park-outline-download text-xs self-center" />
+              <span class="text-sm font-bold">{{ formattedTrafficDown.value }}</span>
+              <span class="text-[10px] text-[--n-text-color-3]">{{ formattedTrafficDown.unit }}</span>
+            </div>
           </div>
         </div>
-        <NText :depth="3" class="text-xs flex gap-1 items-center">
-          <div class="i-icon-park-outline-transfer-data" />
-          流量总览
-        </NText>
-      </div>
-    </NCard>
+        <!-- 桌面端垂直布局 -->
+        <div class="flex-col h-full hidden justify-between sm:flex">
+          <div class="flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
+            <div class="flex gap-1 items-baseline">
+              <div class="i-icon-park-outline-upload text-base shrink-0 self-center" />
+              <span class="text-xl font-bold">{{ formattedTrafficUp.value }}</span>
+              <span class="text-xs text-[--n-text-color-3]">{{ formattedTrafficUp.unit }}</span>
+            </div>
+            <div class="flex gap-1 items-baseline">
+              <div class="i-icon-park-outline-download text-base shrink-0 self-center" />
+              <span class="text-xl font-bold">{{ formattedTrafficDown.value }}</span>
+              <span class="text-xs text-[--n-text-color-3]">{{ formattedTrafficDown.unit }}</span>
+            </div>
+          </div>
+          <NText :depth="3" class="text-xs flex gap-1 items-center">
+            <div class="i-icon-park-outline-transfer-data" />
+            流量总览
+          </NText>
+        </div>
+      </NCard>
+    </LiquidGlassSurface>
 
     <!-- 网络速率 -->
-    <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
-      <!-- 移动端单行显示 -->
-      <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
-        <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
-          <div class="i-icon-park-outline-lightning" />
-          网络速率
-        </NText>
-        <div class="flex gap-3">
-          <div class="flex gap-0.5 items-baseline">
-            <div class="i-icon-park-outline-up text-xs self-center" />
-            <span class="text-sm font-bold">{{ formattedSpeedUp.value }}</span>
-            <span class="text-[10px] text-[--n-text-color-3]">{{ formattedSpeedUp.unit }}</span>
-          </div>
-          <div class="flex gap-0.5 items-baseline">
-            <div class="i-icon-park-outline-down text-xs self-center" />
-            <span class="text-sm font-bold">{{ formattedSpeedDown.value }}</span>
-            <span class="text-[10px] text-[--n-text-color-3]">{{ formattedSpeedDown.unit }}</span>
-          </div>
-        </div>
-      </div>
-      <!-- 桌面端垂直布局 -->
-      <div class="flex-col h-full hidden justify-between sm:flex">
-        <div class="flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
-          <div class="flex gap-1 items-baseline">
-            <div class="i-icon-park-outline-up text-base shrink-0 self-center" />
-            <span class="text-xl font-bold">{{ formattedSpeedUp.value }}</span>
-            <span class="text-xs text-[--n-text-color-3]">{{ formattedSpeedUp.unit }}</span>
-          </div>
-          <div class="flex gap-1 items-baseline">
-            <div class="i-icon-park-outline-down text-base shrink-0 self-center" />
-            <span class="text-xl font-bold">{{ formattedSpeedDown.value }}</span>
-            <span class="text-xs text-[--n-text-color-3]">{{ formattedSpeedDown.unit }}</span>
+    <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
+      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+        <!-- 移动端单行显示 -->
+        <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
+          <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
+            <div class="i-icon-park-outline-lightning" />
+            网络速率
+          </NText>
+          <div class="flex gap-3">
+            <div class="flex gap-0.5 items-baseline">
+              <div class="i-icon-park-outline-up text-xs self-center" />
+              <span class="text-sm font-bold">{{ formattedSpeedUp.value }}</span>
+              <span class="text-[10px] text-[--n-text-color-3]">{{ formattedSpeedUp.unit }}</span>
+            </div>
+            <div class="flex gap-0.5 items-baseline">
+              <div class="i-icon-park-outline-down text-xs self-center" />
+              <span class="text-sm font-bold">{{ formattedSpeedDown.value }}</span>
+              <span class="text-[10px] text-[--n-text-color-3]">{{ formattedSpeedDown.unit }}</span>
+            </div>
           </div>
         </div>
-        <NText :depth="3" class="text-xs flex gap-1 items-center">
-          <div class="i-icon-park-outline-lightning" />
-          网络速率
-        </NText>
-      </div>
-    </NCard>
+        <!-- 桌面端垂直布局 -->
+        <div class="flex-col h-full hidden justify-between sm:flex">
+          <div class="flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
+            <div class="flex gap-1 items-baseline">
+              <div class="i-icon-park-outline-up text-base shrink-0 self-center" />
+              <span class="text-xl font-bold">{{ formattedSpeedUp.value }}</span>
+              <span class="text-xs text-[--n-text-color-3]">{{ formattedSpeedUp.unit }}</span>
+            </div>
+            <div class="flex gap-1 items-baseline">
+              <div class="i-icon-park-outline-down text-base shrink-0 self-center" />
+              <span class="text-xl font-bold">{{ formattedSpeedDown.value }}</span>
+              <span class="text-xs text-[--n-text-color-3]">{{ formattedSpeedDown.unit }}</span>
+            </div>
+          </div>
+          <NText :depth="3" class="text-xs flex gap-1 items-center">
+            <div class="i-icon-park-outline-lightning" />
+            网络速率
+          </NText>
+        </div>
+      </NCard>
+    </LiquidGlassSurface>
   </div>
 </template>
 
 <style scoped lang="scss">
+.general-card-glass {
+  display: block;
+  min-height: 100%;
+}
+
+.general-card-glass :deep(.n-card) {
+  height: 100%;
+}
+
+.general-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(255, 255, 255, 0.46) !important;
+  border-color: rgba(255, 255, 255, 0.36) !important;
+}
+
+html.dark .general-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(24, 24, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 .light-general-contrast :deep(.n-card) {
   background-color: rgba(250, 250, 252, 1) !important;
   box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.08);

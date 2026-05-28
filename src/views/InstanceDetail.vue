@@ -2,6 +2,7 @@
 import { NButton, NCard, NDivider, NEmpty, NIcon, NTabPane, NTabs, NTag, NText } from 'naive-ui'
 import { computed, defineAsyncComponent, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat } from '@/utils/helper'
@@ -86,6 +87,7 @@ const storageInfo = computed<InfoItem[]>(() => [
 
 // 是否启用亮色模式高对比度
 const lightCardContrastEnabled = computed(() => appStore.lightCardContrast && !appStore.isDark)
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>
 
 <template>
@@ -129,92 +131,100 @@ const lightCardContrastEnabled = computed(() => appStore.lightCardContrast && !a
       <!-- 实例信息卡片 -->
       <div class="p-4 gap-4 grid grid-cols-1 lg:grid-cols-2">
         <!-- 硬件信息 -->
-        <NCard title="硬件信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
-            <div v-for="item in hardwareInfo" :key="item.label" class="flex flex-col gap-1">
-              <div class="flex gap-1 items-center">
-                <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
-                <NText :depth="3" class="text-sm">
-                  {{ item.label }}
-                </NText>
-              </div>
-              <NText class="text-sm break-all">
-                {{ item.value }}
-              </NText>
-            </div>
-          </div>
-        </NCard>
-
-        <!-- 系统信息 -->
-        <NCard title="系统信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
-            <div v-for="item in systemInfo" :key="item.label" class="flex flex-col gap-1">
-              <div class="flex gap-1 items-center">
-                <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
-                <NText :depth="3" class="text-sm">
-                  {{ item.label }}
-                </NText>
-              </div>
-              <div class="flex gap-2 items-center">
-                <NIcon v-if="item.label === '操作系统'" size="20">
-                  <img :src="getOSImage(data.os)" :alt="getOSName(data.os)">
-                </NIcon>
-                <NText class="text-sm break-all" :style="(item.label === '运行时间' || item.label === '最后上报') ? { fontFamily: appStore.numberFontFamily } : {}">
+        <LiquidGlassSurface scope="cards" class="detail-card-glass" :class="{ 'detail-card-glass--enabled': hasLiquidGlass }">
+          <NCard title="硬件信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
+              <div v-for="item in hardwareInfo" :key="item.label" class="flex flex-col gap-1">
+                <div class="flex gap-1 items-center">
+                  <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
+                  <NText :depth="3" class="text-sm">
+                    {{ item.label }}
+                  </NText>
+                </div>
+                <NText class="text-sm break-all">
                   {{ item.value }}
                 </NText>
               </div>
             </div>
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
+
+        <!-- 系统信息 -->
+        <LiquidGlassSurface scope="cards" class="detail-card-glass" :class="{ 'detail-card-glass--enabled': hasLiquidGlass }">
+          <NCard title="系统信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
+              <div v-for="item in systemInfo" :key="item.label" class="flex flex-col gap-1">
+                <div class="flex gap-1 items-center">
+                  <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
+                  <NText :depth="3" class="text-sm">
+                    {{ item.label }}
+                  </NText>
+                </div>
+                <div class="flex gap-2 items-center">
+                  <NIcon v-if="item.label === '操作系统'" size="20">
+                    <img :src="getOSImage(data.os)" :alt="getOSName(data.os)">
+                  </NIcon>
+                  <NText class="text-sm break-all" :style="(item.label === '运行时间' || item.label === '最后上报') ? { fontFamily: appStore.numberFontFamily } : {}">
+                    {{ item.value }}
+                  </NText>
+                </div>
+              </div>
+            </div>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 存储信息 -->
-        <NCard title="存储信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <div class="gap-4 grid grid-cols-1 sm:grid-cols-3">
-            <div v-for="item in storageInfo" :key="item.label" class="flex flex-col gap-1">
-              <div class="flex gap-1 items-center">
-                <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
-                <NText :depth="3" class="text-sm">
-                  {{ item.label }}
+        <LiquidGlassSurface scope="cards" class="detail-card-glass" :class="{ 'detail-card-glass--enabled': hasLiquidGlass }">
+          <NCard title="存储信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <div class="gap-4 grid grid-cols-1 sm:grid-cols-3">
+              <div v-for="item in storageInfo" :key="item.label" class="flex flex-col gap-1">
+                <div class="flex gap-1 items-center">
+                  <div v-if="item.icon" :class="item.icon" class="text-gray-400" />
+                  <NText :depth="3" class="text-sm">
+                    {{ item.label }}
+                  </NText>
+                </div>
+                <NText class="text-sm" :style="{ fontFamily: appStore.numberFontFamily }">
+                  {{ item.value }}
                 </NText>
               </div>
-              <NText class="text-sm" :style="{ fontFamily: appStore.numberFontFamily }">
-                {{ item.value }}
-              </NText>
             </div>
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 网络信息 -->
-        <NCard title="网络信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
-            <div class="flex flex-col gap-1">
-              <div class="flex gap-1 items-center">
-                <div class="i-icon-park-outline-transfer-data text-gray-400" />
-                <NText :depth="3" class="text-sm">
-                  总流量
+        <LiquidGlassSurface scope="cards" class="detail-card-glass" :class="{ 'detail-card-glass--enabled': hasLiquidGlass }">
+          <NCard title="网络信息" size="small" :class="[{ 'light-card-contrast': lightCardContrastEnabled }, { 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <div class="gap-4 grid grid-cols-1 sm:grid-cols-2">
+              <div class="flex flex-col gap-1">
+                <div class="flex gap-1 items-center">
+                  <div class="i-icon-park-outline-transfer-data text-gray-400" />
+                  <NText :depth="3" class="text-sm">
+                    总流量
+                  </NText>
+                </div>
+                <NText class="text-sm break-all" :style="{ fontFamily: appStore.numberFontFamily }">
+                  ↑ {{ formatBytes(data?.net_total_up ?? 0) }}
+                  <span class="p-1" />
+                  ↓ {{ formatBytes(data?.net_total_down ?? 0) }}
                 </NText>
               </div>
-              <NText class="text-sm break-all" :style="{ fontFamily: appStore.numberFontFamily }">
-                ↑ {{ formatBytes(data?.net_total_up ?? 0) }}
-                <span class="p-1" />
-                ↓ {{ formatBytes(data?.net_total_down ?? 0) }}
-              </NText>
-            </div>
-            <div class="flex flex-col gap-1">
-              <div class="flex gap-1 items-center">
-                <div class="i-icon-park-outline-dashboard-one text-gray-400" />
-                <NText :depth="3" class="text-sm">
-                  网络速率
+              <div class="flex flex-col gap-1">
+                <div class="flex gap-1 items-center">
+                  <div class="i-icon-park-outline-dashboard-one text-gray-400" />
+                  <NText :depth="3" class="text-sm">
+                    网络速率
+                  </NText>
+                </div>
+                <NText class="text-sm break-all" :style="{ fontFamily: appStore.numberFontFamily }">
+                  ↑ {{ formatBytesPerSecond(data?.net_out ?? 0) }}
+                  <span class="p-1" />
+                  ↓ {{ formatBytesPerSecond(data?.net_in ?? 0) }}
                 </NText>
               </div>
-              <NText class="text-sm break-all" :style="{ fontFamily: appStore.numberFontFamily }">
-                ↑ {{ formatBytesPerSecond(data?.net_out ?? 0) }}
-                <span class="p-1" />
-                ↓ {{ formatBytesPerSecond(data?.net_in ?? 0) }}
-              </NText>
             </div>
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
       </div>
 
       <!-- 分割线 -->
@@ -238,6 +248,20 @@ const lightCardContrastEnabled = computed(() => appStore.lightCardContrast && !a
 </template>
 
 <style scoped lang="scss">
+.detail-card-glass {
+  display: block;
+}
+
+.detail-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(255, 255, 255, 0.46) !important;
+  border-color: rgba(255, 255, 255, 0.36) !important;
+}
+
+html.dark .detail-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(24, 24, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 /* 亮色模式高对比度样式 */
 .light-card-contrast {
   background-color: rgba(250, 250, 252, 1) !important;

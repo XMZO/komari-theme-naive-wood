@@ -3,6 +3,7 @@ import dayjs from 'dayjs'
 import { NButton, NEmpty, NSpin, NSwitch, NTooltip } from 'naive-ui'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import VChart from 'vue-echarts'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { cutPeakValues, interpolateNullsLinear } from '@/utils/recordHelper'
 import { getSharedRpc } from '@/utils/rpc'
@@ -530,6 +531,8 @@ const blurClass = computed(() => {
     return 'glass-20'
   return `glass-${radius}`
 })
+
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>
 
 <template>
@@ -559,87 +562,93 @@ const blurClass = computed(() => {
       <template v-else>
         <!-- 最新值统计卡片（可点击切换选中状态） -->
         <div v-if="latestValues.length > 0" class="gap-3 grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr))">
-          <div
+          <LiquidGlassSurface
             v-for="task in latestValues"
             :key="task.id"
-            class="p-3 border border-transparent flex gap-3 cursor-pointer select-none transition-colors items-center hover:border-solid"
-            :class="[
-              selectedTaskIds.includes(task.id)
-                ? ''
-                : 'opacity-50',
-              hasBackgroundBlur ? 'glass-task-enabled' : 'task-card-default',
-              blurClass,
-            ]"
-            :onmouseover="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = task.color)"
-            :onmouseout="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = 'transparent')"
-            @click="toggleTask(task.id)"
+            scope="cards"
+            class="task-card-glass"
+            :class="{ 'task-card-glass--enabled': hasLiquidGlass }"
           >
             <div
-              class="rounded-md flex-shrink-0 h-10 w-1.5"
-              :style="{ backgroundColor: task.color }"
-            />
-            <div class="flex-1 min-w-0">
-              <div class="flex gap-2 items-center">
-                <span class="text-base font-semibold truncate">{{ task.name }}</span>
-                <NTooltip placement="top">
-                  <template #trigger>
-                    <span class="i-carbon-information text-sm opacity-50 cursor-help transition-opacity hover:opacity-100" style="color: var(--n-text-color-2)" @click.stop />
-                  </template>
-                  <div class="text-sm gap-x-4 gap-y-1.5 grid grid-cols-2">
-                    <template v-if="task.min !== undefined">
-                      <span style="color: var(--n-text-color-3)">最小</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.min) }} ms</span>
+              class="p-3 border border-transparent flex gap-3 cursor-pointer select-none transition-colors items-center hover:border-solid"
+              :class="[
+                selectedTaskIds.includes(task.id)
+                  ? ''
+                  : 'opacity-50',
+                hasBackgroundBlur ? 'glass-task-enabled' : 'task-card-default',
+                blurClass,
+              ]"
+              :onmouseover="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = task.color)"
+              :onmouseout="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = 'transparent')"
+              @click="toggleTask(task.id)"
+            >
+              <div
+                class="rounded-md flex-shrink-0 h-10 w-1.5"
+                :style="{ backgroundColor: task.color }"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="flex gap-2 items-center">
+                  <span class="text-base font-semibold truncate">{{ task.name }}</span>
+                  <NTooltip placement="top">
+                    <template #trigger>
+                      <span class="i-carbon-information text-sm opacity-50 cursor-help transition-opacity hover:opacity-100" style="color: var(--n-text-color-2)" @click.stop />
                     </template>
-                    <template v-if="task.max !== undefined">
-                      <span style="color: var(--n-text-color-3)">最大</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.max) }} ms</span>
-                    </template>
-                    <template v-if="task.avg !== undefined">
-                      <span style="color: var(--n-text-color-3)">平均</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.avg) }} ms</span>
-                    </template>
-                    <template v-if="task.latest !== undefined">
-                      <span style="color: var(--n-text-color-3)">最新</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.latest) }} ms</span>
-                    </template>
-                    <template v-if="task.p50 !== undefined">
-                      <span style="color: var(--n-text-color-3)">P50</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p50) }} ms</span>
-                    </template>
-                    <template v-if="task.p99 !== undefined">
-                      <span style="color: var(--n-text-color-3)">P99</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p99) }} ms</span>
-                    </template>
-                    <template v-if="task.p99_p50_ratio !== undefined">
-                      <span style="color: var(--n-text-color-3)">波动率</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.p99_p50_ratio.toFixed(2) }}</span>
-                    </template>
-                    <template v-if="task.interval !== undefined">
-                      <span style="color: var(--n-text-color-3)">间隔</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.interval }}s</span>
-                    </template>
-                    <template v-if="task.type">
-                      <span style="color: var(--n-text-color-3)">类型</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.type.toUpperCase() }}</span>
-                    </template>
-                    <template v-if="task.total !== undefined">
-                      <span style="color: var(--n-text-color-3)">总数</span>
-                      <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.total }}</span>
-                    </template>
-                  </div>
-                </NTooltip>
-              </div>
-              <div class="text-sm mt-1 flex gap-3 items-center" style="color: var(--n-text-color-3)">
-                <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ task.latestValue !== null ? `${Math.round(task.latestValue)} ms` : '-' }}</span>
-                <span class="opacity-60">•</span>
-                <span :style="{ fontFamily: appStore.numberFontFamily }">{{ task.loss.toFixed(1) }}% 丢包</span>
-                <template v-if="task.p99_p50_ratio !== undefined">
+                    <div class="text-sm gap-x-4 gap-y-1.5 grid grid-cols-2">
+                      <template v-if="task.min !== undefined">
+                        <span style="color: var(--n-text-color-3)">最小</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.min) }} ms</span>
+                      </template>
+                      <template v-if="task.max !== undefined">
+                        <span style="color: var(--n-text-color-3)">最大</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.max) }} ms</span>
+                      </template>
+                      <template v-if="task.avg !== undefined">
+                        <span style="color: var(--n-text-color-3)">平均</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.avg) }} ms</span>
+                      </template>
+                      <template v-if="task.latest !== undefined">
+                        <span style="color: var(--n-text-color-3)">最新</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.latest) }} ms</span>
+                      </template>
+                      <template v-if="task.p50 !== undefined">
+                        <span style="color: var(--n-text-color-3)">P50</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p50) }} ms</span>
+                      </template>
+                      <template v-if="task.p99 !== undefined">
+                        <span style="color: var(--n-text-color-3)">P99</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p99) }} ms</span>
+                      </template>
+                      <template v-if="task.p99_p50_ratio !== undefined">
+                        <span style="color: var(--n-text-color-3)">波动率</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.p99_p50_ratio.toFixed(2) }}</span>
+                      </template>
+                      <template v-if="task.interval !== undefined">
+                        <span style="color: var(--n-text-color-3)">间隔</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.interval }}s</span>
+                      </template>
+                      <template v-if="task.type">
+                        <span style="color: var(--n-text-color-3)">类型</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.type.toUpperCase() }}</span>
+                      </template>
+                      <template v-if="task.total !== undefined">
+                        <span style="color: var(--n-text-color-3)">总数</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.total }}</span>
+                      </template>
+                    </div>
+                  </NTooltip>
+                </div>
+                <div class="text-sm mt-1 flex gap-3 items-center" style="color: var(--n-text-color-3)">
+                  <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ task.latestValue !== null ? `${Math.round(task.latestValue)} ms` : '-' }}</span>
                   <span class="opacity-60">•</span>
-                  <span :style="{ fontFamily: appStore.numberFontFamily }" title="波动率 p99/p50">{{ task.p99_p50_ratio.toFixed(1) }} 波动</span>
-                </template>
+                  <span :style="{ fontFamily: appStore.numberFontFamily }">{{ task.loss.toFixed(1) }}% 丢包</span>
+                  <template v-if="task.p99_p50_ratio !== undefined">
+                    <span class="opacity-60">•</span>
+                    <span :style="{ fontFamily: appStore.numberFontFamily }" title="波动率 p99/p50">{{ task.p99_p50_ratio.toFixed(1) }} 波动</span>
+                  </template>
+                </div>
               </div>
             </div>
-          </div>
+          </LiquidGlassSurface>
         </div>
 
         <!-- 峰值裁剪开关 + 全选/全不选 -->
@@ -675,6 +684,20 @@ const blurClass = computed(() => {
 
 <style scoped>
 /* 默认任务卡片样式 */
+.task-card-glass {
+  display: block;
+}
+
+.task-card-glass--enabled > :deep(.liquid-glass__content) > div {
+  background-color: rgba(255, 255, 255, 0.44) !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+}
+
+html.dark .task-card-glass--enabled > :deep(.liquid-glass__content) > div {
+  background-color: rgba(24, 24, 28, 0.54) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 .task-card-default {
   background-color: rgba(255, 255, 255, 0.9);
   border-radius: var(--n-border-radius);

@@ -2,6 +2,7 @@
 import type { NodeData } from '@/stores/nodes'
 import { NBadge, NButton, NIcon, NList, NListItem, NModal, NProgress, NTag, NText, NTooltip, useThemeVars } from 'naive-ui'
 import { computed, ref } from 'vue'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import PingChart from '@/components/PingChart.vue'
 import TrafficProgress from '@/components/TrafficProgress.vue'
 import { useAppStore } from '@/stores/app'
@@ -225,6 +226,8 @@ const listBlurClass = computed(() => {
   return `glass-${radius}`
 })
 
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
+
 // 计算国旗图标路径
 function getFlagSrc(region: string): string {
   const code = getRegionCode(region)
@@ -367,240 +370,242 @@ const columnTitles: Record<string, string> = {
 
 <template>
   <div class="node-list-wrapper">
-    <NList
-      hoverable
-      clickable
-      bordered
-      class="min-w-fit w-full"
-      :class="[
-        { 'light-list-contrast': appStore.lightCardContrast && !appStore.isDark },
-        { 'glass-list-enabled': hasBackgroundBlur },
-        listBlurClass,
-      ]"
-    >
-      <template #header>
-        <div class="node-list-header" :style="gridStyle">
-          <template v-for="col in columns" :key="col">
-            <div
-              :class="`node-list-header__${col}`"
-              :style="getColumnStyle(col)"
-              class="sortable-header"
-              @click="handleSort(col)"
-            >
-              <NText :depth="3" class="text-xs">
-                {{ columnTitles[col] }}{{ sortKey === col ? (sortDir === 1 ? ' ↑' : ' ↓') : '' }}
-              </NText>
-            </div>
-          </template>
-        </div>
-      </template>
-      <NListItem
-        v-for="node in sortedNodes"
-        :key="node.uuid"
-        class="node-list-row"
-        :class="{ 'node-list-row--offline': !node.online }"
-        :style="rowHeightStyle"
-        @click="handleClick(node)"
+    <LiquidGlassSurface scope="interface" class="node-list-glass" :class="{ 'node-list-glass--enabled': hasLiquidGlass }">
+      <NList
+        hoverable
+        clickable
+        bordered
+        class="min-w-fit w-full"
+        :class="[
+          { 'light-list-contrast': appStore.lightCardContrast && !appStore.isDark },
+          { 'glass-list-enabled': hasBackgroundBlur },
+          listBlurClass,
+        ]"
       >
-        <div class="node-list-item" :style="gridStyle">
-          <template v-for="col in columns" :key="col">
-            <!-- 在线状态指示器 -->
-            <div v-if="col === 'status'" class="node-list-item__status" :style="getColumnStyle('status')">
-              <div class="flex gap-1 items-center">
-                <NTooltip v-if="appStore.showPingChartButton">
-                  <template #trigger>
-                    <NButton
-                      quaternary
-                      circle
-                      size="tiny"
-                      class="p-1!"
-                      @click.stop="openPingChart(node)"
-                    >
-                      <template #icon>
-                        <div class="i-icon-park-outline-area-map text-sm" />
-                      </template>
-                    </NButton>
-                  </template>
-                  查看延迟图表
-                </NTooltip>
-                <!-- 根据 listStatusStyle 配置选择显示方式 -->
-                <NTag v-if="appStore.listStatusStyle === 'tag'" :type="node.online ? 'success' : 'error'" size="small">
-                  {{ node.online ? '在线' : '离线' }}
-                </NTag>
-                <NBadge v-else :type="node.online ? 'success' : 'error'" :value="node.online ? '在线' : '离线'" />
-              </div>
-            </div>
-
-            <!-- 国旗 -->
-            <div v-else-if="col === 'region'" class="node-list-item__region" :style="getColumnStyle('region')">
-              <NIcon size="20">
-                <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
-              </NIcon>
-            </div>
-
-            <!-- 节点名称 -->
-            <div v-else-if="col === 'name'" class="node-list-item__name" :style="getColumnStyle('name')">
-              <NText class="text-sm font-semibold">
-                {{ node.name }}
-              </NText>
-            </div>
-
-            <!-- 标签 -->
-            <div v-else-if="col === 'tags'" class="node-list-item__tags" :style="getColumnStyle('tags')">
-              <div class="flex flex-wrap gap-1 items-center">
-                <!-- 根据 listTagsStyle 配置选择显示方式 -->
-                <template v-if="appStore.listTagsStyle === 'tag'">
-                  <NTag
-                    v-for="(tag, index) in getNodeTags(node)"
-                    :key="index"
-                    :color="{ color: `${tag.color}20`, textColor: tag.color, borderColor: `${tag.color}40` }"
-                    size="small"
-                  >
-                    {{ tag.text }}
-                  </NTag>
-                </template>
-                <template v-else>
-                  <NBadge
-                    v-for="(tag, index) in getNodeTags(node)"
-                    :key="index"
-                    :color="tag.color"
-                    :value="tag.text"
-                  />
-                </template>
-              </div>
-            </div>
-
-            <!-- 运行时间 -->
-            <div v-else-if="col === 'uptime'" class="node-list-item__uptime" :style="getColumnStyle('uptime')">
-              <NText :depth="3" class="text-xs" :style="{ fontFamily: appStore.numberFontFamily }">
-                {{ formatUptime(node.uptime ?? 0) }}
-              </NText>
-            </div>
-
-            <!-- 操作系统 -->
-            <div v-else-if="col === 'os'" class="node-list-item__os" :style="getColumnStyle('os')">
-              <div class="flex gap-1 items-center">
-                <NIcon size="16">
-                  <img :src="getOSImage(node.os)" :alt="getOSName(node.os)">
-                </NIcon>
+        <template #header>
+          <div class="node-list-header" :style="gridStyle">
+            <template v-for="col in columns" :key="col">
+              <div
+                :class="`node-list-header__${col}`"
+                :style="getColumnStyle(col)"
+                class="sortable-header"
+                @click="handleSort(col)"
+              >
                 <NText :depth="3" class="text-xs">
-                  {{ getOSName(node.os) }}
+                  {{ columnTitles[col] }}{{ sortKey === col ? (sortDir === 1 ? ' ↑' : ' ↓') : '' }}
                 </NText>
               </div>
-            </div>
-
-            <!-- CPU -->
-            <div v-else-if="col === 'cpu'" class="node-list-item__cpu" :style="getColumnStyle('cpu')">
-              <div class="flex flex-col gap-0.5">
-                <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
-                  <NText>{{ (node.cpu ?? 0).toFixed(1) }}%</NText>
-                  <div class="flex-1" />
-                  <NText :depth="3">
-                    {{ node.load.toFixed(2) ?? 0 }}, {{ node.load5.toFixed(2) ?? 0 }}, {{ node.load15.toFixed(2) ?? 0 }}
-                  </NText>
+            </template>
+          </div>
+        </template>
+        <NListItem
+          v-for="node in sortedNodes"
+          :key="node.uuid"
+          class="node-list-row"
+          :class="{ 'node-list-row--offline': !node.online }"
+          :style="rowHeightStyle"
+          @click="handleClick(node)"
+        >
+          <div class="node-list-item" :style="gridStyle">
+            <template v-for="col in columns" :key="col">
+              <!-- 在线状态指示器 -->
+              <div v-if="col === 'status'" class="node-list-item__status" :style="getColumnStyle('status')">
+                <div class="flex gap-1 items-center">
+                  <NTooltip v-if="appStore.showPingChartButton">
+                    <template #trigger>
+                      <NButton
+                        quaternary
+                        circle
+                        size="tiny"
+                        class="p-1!"
+                        @click.stop="openPingChart(node)"
+                      >
+                        <template #icon>
+                          <div class="i-icon-park-outline-area-map text-sm" />
+                        </template>
+                      </NButton>
+                    </template>
+                    查看延迟图表
+                  </NTooltip>
+                  <!-- 根据 listStatusStyle 配置选择显示方式 -->
+                  <NTag v-if="appStore.listStatusStyle === 'tag'" :type="node.online ? 'success' : 'error'" size="small">
+                    {{ node.online ? '在线' : '离线' }}
+                  </NTag>
+                  <NBadge v-else :type="node.online ? 'success' : 'error'" :value="node.online ? '在线' : '离线'" />
                 </div>
-                <NProgress :show-indicator="false" :percentage="node.cpu ?? 0" :status="getStatus(node.cpu ?? 0)" :height="4" />
               </div>
-            </div>
 
-            <!-- 内存 -->
-            <div v-else-if="col === 'mem'" class="node-list-item__mem" :style="getColumnStyle('mem')">
-              <div class="flex flex-col gap-0.5">
-                <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
-                  <NText>{{ ((node.ram ?? 0) / (node.mem_total || 1) * 100).toFixed(1) }}%</NText>
-                  <div class="flex-1" />
-                  <NText :depth="3">
-                    {{ formatBytes(node.ram ?? 0) }} / {{ formatBytes(node.mem_total ?? 0) }}
-                  </NText>
-                </div>
-                <NProgress :show-indicator="false" :percentage="(node.ram ?? 0) / (node.mem_total || 1) * 100" :status="getStatus((node.ram ?? 0) / (node.mem_total || 1) * 100)" :height="4" />
+              <!-- 国旗 -->
+              <div v-else-if="col === 'region'" class="node-list-item__region" :style="getColumnStyle('region')">
+                <NIcon size="20">
+                  <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
+                </NIcon>
               </div>
-            </div>
 
-            <!-- 硬盘 -->
-            <div v-else-if="col === 'disk'" class="node-list-item__disk" :style="getColumnStyle('disk')">
-              <div class="flex flex-col gap-0.5">
-                <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
-                  <NText>{{ ((node.disk ?? 0) / (node.disk_total || 1) * 100).toFixed(1) }}%</NText>
-                  <div class="flex-1" />
-                  <NText :depth="3">
-                    {{ formatBytes(node.disk ?? 0) }} / {{ formatBytes(node.disk_total ?? 0) }}
-                  </NText>
-                </div>
-                <NProgress :show-indicator="false" :percentage="(node.disk ?? 0) / (node.disk_total || 1) * 100" :status="getStatus((node.disk ?? 0) / (node.disk_total || 1) * 100)" :height="4" />
-              </div>
-            </div>
-
-            <!-- 速率 -->
-            <div v-else-if="col === 'rate'" class="node-list-item__rate" :style="getColumnStyle('rate')">
-              <div class="text-[11px] flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
-                <NText>
-                  <span :style="{ color: themeVars.successColor }">↑{{ formatBytesPerSecond(node.net_out ?? 0) }}</span>
+              <!-- 节点名称 -->
+              <div v-else-if="col === 'name'" class="node-list-item__name" :style="getColumnStyle('name')">
+                <NText class="text-sm font-semibold">
+                  {{ node.name }}
                 </NText>
-                <NText>
-                  <span :style="{ color: themeVars.infoColor }">↓{{ formatBytesPerSecond(node.net_in ?? 0) }}</span>
-                </NText>
               </div>
-            </div>
 
-            <!-- 流量 -->
-            <div v-else-if="col === 'traffic'" class="node-list-item__traffic" :style="getColumnStyle('traffic')">
-              <div class="traffic-cell">
-                <NTooltip :trigger="isTouchDevice ? 'click' : 'hover'">
-                  <template #trigger>
-                    <div class="flex flex-col gap-0.5 w-full" :class="{ 'cursor-help': !isTouchDevice }" @click.stop>
-                      <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
-                        <NText v-if="showTrafficProgress(node)">
-                          {{ getTrafficUsedPercentage(node).toFixed(1) }}%
-                        </NText>
-                        <div class="flex-1" />
-                        <NText :depth="3">
-                          {{ formatBytes(getTrafficUsed(node)) }} / <template v-if="showTrafficProgress(node)">
-                            {{ formatBytes(node.traffic_limit) }}
-                          </template><template v-else>
-                            ∞
-                          </template>
-                        </NText>
-                      </div>
-                      <!-- 统一使用 TrafficProgress 组件，自动根据类型选择颜色 -->
-                      <TrafficProgress
-                        :upload="node.net_total_up ?? 0"
-                        :download="node.net_total_down ?? 0"
-                        :traffic-limit="node.traffic_limit"
-                        :traffic-limit-type="(node.traffic_limit_type || 'sum')"
-                        height="4px"
-                      />
-                    </div>
+              <!-- 标签 -->
+              <div v-else-if="col === 'tags'" class="node-list-item__tags" :style="getColumnStyle('tags')">
+                <div class="flex flex-wrap gap-1 items-center">
+                  <!-- 根据 listTagsStyle 配置选择显示方式 -->
+                  <template v-if="appStore.listTagsStyle === 'tag'">
+                    <NTag
+                      v-for="(tag, index) in getNodeTags(node)"
+                      :key="index"
+                      :color="{ color: `${tag.color}20`, textColor: tag.color, borderColor: `${tag.color}40` }"
+                      size="small"
+                    >
+                      {{ tag.text }}
+                    </NTag>
                   </template>
-                  <div class="text-[11px] flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
-                    <span><span :style="{ color: themeVars.successColor }">↑</span> {{ formatBytes(node.net_total_up ?? 0) }}</span>
-                    <span><span :style="{ color: themeVars.infoColor }">↓</span> {{ formatBytes(node.net_total_down ?? 0) }}</span>
-                  </div>
-                </NTooltip>
+                  <template v-else>
+                    <NBadge
+                      v-for="(tag, index) in getNodeTags(node)"
+                      :key="index"
+                      :color="tag.color"
+                      :value="tag.text"
+                    />
+                  </template>
+                </div>
               </div>
-            </div>
-          </template>
-        </div>
-        <div v-if="!node.online" class="node-offline-overlay" aria-hidden="true">
-          <div class="node-offline-overlay__grid" :style="gridStyle">
-            <div class="node-offline-overlay__mask" :style="offlineOverlayMaskStyle" />
-            <div v-if="offlineOverlayRegionStyle" class="node-offline-overlay__region" :style="offlineOverlayRegionStyle">
-              <NIcon size="18" class="node-offline-overlay__flag shrink-0">
-                <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
-              </NIcon>
-            </div>
-            <div class="node-offline-overlay__content" :style="offlineOverlayContentStyle">
-              <NText class="node-offline-overlay__name text-sm font-semibold truncate">
-                {{ node.name }}
-              </NText>
-              <NText :depth="3" class="node-offline-overlay__time text-xs" :style="{ fontFamily: appStore.numberFontFamily }">
-                最后在线 {{ formatOfflineTime(node) }}
-              </NText>
+
+              <!-- 运行时间 -->
+              <div v-else-if="col === 'uptime'" class="node-list-item__uptime" :style="getColumnStyle('uptime')">
+                <NText :depth="3" class="text-xs" :style="{ fontFamily: appStore.numberFontFamily }">
+                  {{ formatUptime(node.uptime ?? 0) }}
+                </NText>
+              </div>
+
+              <!-- 操作系统 -->
+              <div v-else-if="col === 'os'" class="node-list-item__os" :style="getColumnStyle('os')">
+                <div class="flex gap-1 items-center">
+                  <NIcon size="16">
+                    <img :src="getOSImage(node.os)" :alt="getOSName(node.os)">
+                  </NIcon>
+                  <NText :depth="3" class="text-xs">
+                    {{ getOSName(node.os) }}
+                  </NText>
+                </div>
+              </div>
+
+              <!-- CPU -->
+              <div v-else-if="col === 'cpu'" class="node-list-item__cpu" :style="getColumnStyle('cpu')">
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
+                    <NText>{{ (node.cpu ?? 0).toFixed(1) }}%</NText>
+                    <div class="flex-1" />
+                    <NText :depth="3">
+                      {{ node.load.toFixed(2) ?? 0 }}, {{ node.load5.toFixed(2) ?? 0 }}, {{ node.load15.toFixed(2) ?? 0 }}
+                    </NText>
+                  </div>
+                  <NProgress :show-indicator="false" :percentage="node.cpu ?? 0" :status="getStatus(node.cpu ?? 0)" :height="4" />
+                </div>
+              </div>
+
+              <!-- 内存 -->
+              <div v-else-if="col === 'mem'" class="node-list-item__mem" :style="getColumnStyle('mem')">
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
+                    <NText>{{ ((node.ram ?? 0) / (node.mem_total || 1) * 100).toFixed(1) }}%</NText>
+                    <div class="flex-1" />
+                    <NText :depth="3">
+                      {{ formatBytes(node.ram ?? 0) }} / {{ formatBytes(node.mem_total ?? 0) }}
+                    </NText>
+                  </div>
+                  <NProgress :show-indicator="false" :percentage="(node.ram ?? 0) / (node.mem_total || 1) * 100" :status="getStatus((node.ram ?? 0) / (node.mem_total || 1) * 100)" :height="4" />
+                </div>
+              </div>
+
+              <!-- 硬盘 -->
+              <div v-else-if="col === 'disk'" class="node-list-item__disk" :style="getColumnStyle('disk')">
+                <div class="flex flex-col gap-0.5">
+                  <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
+                    <NText>{{ ((node.disk ?? 0) / (node.disk_total || 1) * 100).toFixed(1) }}%</NText>
+                    <div class="flex-1" />
+                    <NText :depth="3">
+                      {{ formatBytes(node.disk ?? 0) }} / {{ formatBytes(node.disk_total ?? 0) }}
+                    </NText>
+                  </div>
+                  <NProgress :show-indicator="false" :percentage="(node.disk ?? 0) / (node.disk_total || 1) * 100" :status="getStatus((node.disk ?? 0) / (node.disk_total || 1) * 100)" :height="4" />
+                </div>
+              </div>
+
+              <!-- 速率 -->
+              <div v-else-if="col === 'rate'" class="node-list-item__rate" :style="getColumnStyle('rate')">
+                <div class="text-[11px] flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
+                  <NText>
+                    <span :style="{ color: themeVars.successColor }">↑{{ formatBytesPerSecond(node.net_out ?? 0) }}</span>
+                  </NText>
+                  <NText>
+                    <span :style="{ color: themeVars.infoColor }">↓{{ formatBytesPerSecond(node.net_in ?? 0) }}</span>
+                  </NText>
+                </div>
+              </div>
+
+              <!-- 流量 -->
+              <div v-else-if="col === 'traffic'" class="node-list-item__traffic" :style="getColumnStyle('traffic')">
+                <div class="traffic-cell">
+                  <NTooltip :trigger="isTouchDevice ? 'click' : 'hover'">
+                    <template #trigger>
+                      <div class="flex flex-col gap-0.5 w-full" :class="{ 'cursor-help': !isTouchDevice }" @click.stop>
+                        <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
+                          <NText v-if="showTrafficProgress(node)">
+                            {{ getTrafficUsedPercentage(node).toFixed(1) }}%
+                          </NText>
+                          <div class="flex-1" />
+                          <NText :depth="3">
+                            {{ formatBytes(getTrafficUsed(node)) }} / <template v-if="showTrafficProgress(node)">
+                              {{ formatBytes(node.traffic_limit) }}
+                            </template><template v-else>
+                              ∞
+                            </template>
+                          </NText>
+                        </div>
+                        <!-- 统一使用 TrafficProgress 组件，自动根据类型选择颜色 -->
+                        <TrafficProgress
+                          :upload="node.net_total_up ?? 0"
+                          :download="node.net_total_down ?? 0"
+                          :traffic-limit="node.traffic_limit"
+                          :traffic-limit-type="(node.traffic_limit_type || 'sum')"
+                          height="4px"
+                        />
+                      </div>
+                    </template>
+                    <div class="text-[11px] flex flex-col gap-1" :style="{ fontFamily: appStore.numberFontFamily }">
+                      <span><span :style="{ color: themeVars.successColor }">↑</span> {{ formatBytes(node.net_total_up ?? 0) }}</span>
+                      <span><span :style="{ color: themeVars.infoColor }">↓</span> {{ formatBytes(node.net_total_down ?? 0) }}</span>
+                    </div>
+                  </NTooltip>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div v-if="!node.online" class="node-offline-overlay" aria-hidden="true">
+            <div class="node-offline-overlay__grid" :style="gridStyle">
+              <div class="node-offline-overlay__mask" :style="offlineOverlayMaskStyle" />
+              <div v-if="offlineOverlayRegionStyle" class="node-offline-overlay__region" :style="offlineOverlayRegionStyle">
+                <NIcon size="18" class="node-offline-overlay__flag shrink-0">
+                  <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
+                </NIcon>
+              </div>
+              <div class="node-offline-overlay__content" :style="offlineOverlayContentStyle">
+                <NText class="node-offline-overlay__name text-sm font-semibold truncate">
+                  {{ node.name }}
+                </NText>
+                <NText :depth="3" class="node-offline-overlay__time text-xs" :style="{ fontFamily: appStore.numberFontFamily }">
+                  最后在线 {{ formatOfflineTime(node) }}
+                </NText>
+              </div>
             </div>
           </div>
-        </div>
-      </NListItem>
-    </NList>
+        </NListItem>
+      </NList>
+    </LiquidGlassSurface>
 
     <!-- 延迟图表弹窗 -->
     <NModal
@@ -620,6 +625,30 @@ const columnTitles: Record<string, string> = {
 .node-list-wrapper {
   overflow-x: auto;
   min-width: 0;
+}
+
+.node-list-glass {
+  display: block;
+  min-width: fit-content;
+  width: 100%;
+}
+
+.node-list-glass--enabled :deep(.n-list) {
+  background-color: rgba(255, 255, 255, 0.44) !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+}
+
+.node-list-glass--enabled :deep(.n-list-item) {
+  background-color: rgba(255, 255, 255, 0.22) !important;
+}
+
+html.dark .node-list-glass--enabled :deep(.n-list) {
+  background-color: rgba(24, 24, 28, 0.54) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
+html.dark .node-list-glass--enabled :deep(.n-list-item) {
+  background-color: rgba(24, 24, 28, 0.32) !important;
 }
 
 :deep(.n-list__header) {

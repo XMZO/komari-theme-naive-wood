@@ -2,6 +2,7 @@
 import type { VersionInfo } from '@/utils/api'
 import { NLayoutFooter, NText } from 'naive-ui'
 import { computed, onMounted, ref } from 'vue'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { getSharedApi } from '@/utils/api'
 
@@ -58,103 +59,120 @@ const blurClass = computed(() => {
     return 'glass-20'
   return `glass-${radius}`
 })
+
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 </script>
 
 <template>
-  <NLayoutFooter
-    class="px-4 py-4 w-full"
-    :class="[{ 'glass-footer-enabled': hasBackgroundBlur }, blurClass]"
-  >
-    <div
-      class="flex flex-col gap-3 w-full sm:flex-row sm:gap-4 sm:items-center sm:justify-between"
-      :style="containerStyle"
+  <LiquidGlassSurface scope="interface" class="footer-glass" :class="{ 'footer-glass--enabled': hasLiquidGlass }">
+    <NLayoutFooter
+      class="px-4 py-4 w-full"
+      :class="[{ 'glass-footer-enabled': hasBackgroundBlur }, blurClass]"
     >
-      <!-- 主信息区域 -->
-      <div class="flex flex-col gap-2 sm:flex-row sm:gap-6">
-        <!-- Komari Monitor 信息 -->
-        <div class="flex flex-wrap gap-1 items-center">
-          <NText :depth="3" class="text-sm">
-            Powered by
-          </NText>
-          <a
-            href="https://github.com/komari-monitor/komari"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-decoration-none transition-opacity hover:opacity-80"
-          >
-            <NText type="primary" class="text-sm font-medium">
-              Komari Monitor
+      <div
+        class="flex flex-col gap-3 w-full sm:flex-row sm:gap-4 sm:items-center sm:justify-between"
+        :style="containerStyle"
+      >
+        <!-- 主信息区域 -->
+        <div class="flex flex-col gap-2 sm:flex-row sm:gap-6">
+          <!-- Komari Monitor 信息 -->
+          <div class="flex flex-wrap gap-1 items-center">
+            <NText :depth="3" class="text-sm">
+              Powered by
             </NText>
-          </a>
-          <NText v-if="formattedServerVersion" :depth="3" class="text-xs font-mono ml-1">
-            v{{ formattedServerVersion }}
-          </NText>
+            <a
+              href="https://github.com/komari-monitor/komari"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-decoration-none transition-opacity hover:opacity-80"
+            >
+              <NText type="primary" class="text-sm font-medium">
+                Komari Monitor
+              </NText>
+            </a>
+            <NText v-if="formattedServerVersion" :depth="3" class="text-xs font-mono ml-1">
+              v{{ formattedServerVersion }}
+            </NText>
+          </div>
+
+          <!-- 主题信息 -->
+          <div class="flex flex-wrap gap-1 items-center">
+            <NText :depth="3" class="text-sm">
+              Theme by
+            </NText>
+            <a
+              href="https://github.com/lyimoexiao/komari-theme-naive"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-decoration-none transition-opacity hover:opacity-80"
+            >
+              <NText type="primary" class="text-sm font-medium">
+                Komari Naive
+              </NText>
+            </a>
+            <NText :depth="3" class="text-xs font-mono ml-1">
+              v{{ buildVersion }} ({{ buildGitHash }})
+            </NText>
+          </div>
         </div>
 
-        <!-- 主题信息 -->
-        <div class="flex flex-wrap gap-1 items-center">
-          <NText :depth="3" class="text-sm">
-            Theme by
-          </NText>
+        <!-- 备案信息区域 -->
+        <div v-if="showFiling" class="flex flex-wrap gap-2 items-center sm:flex-shrink-0">
+          <!-- ICP 备案 -->
           <a
-            href="https://github.com/lyimoexiao/komari-theme-naive"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="text-decoration-none transition-opacity hover:opacity-80"
-          >
-            <NText type="primary" class="text-sm font-medium">
-              Komari Naive
-            </NText>
-          </a>
-          <NText :depth="3" class="text-xs font-mono ml-1">
-            v{{ buildVersion }} ({{ buildGitHash }})
-          </NText>
-        </div>
-      </div>
-
-      <!-- 备案信息区域 -->
-      <div v-if="showFiling" class="flex flex-wrap gap-2 items-center sm:flex-shrink-0">
-        <!-- ICP 备案 -->
-        <a
-          v-if="showIcp"
-          :href="appStore.icpUrl"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="text-decoration-none transition-opacity hover:opacity-70"
-        >
-          <NText :depth="3" class="text-xs">
-            {{ appStore.icpNumber }}
-          </NText>
-        </a>
-
-        <!-- 分隔符 -->
-        <span v-if="showIcp && showPolice" class="opacity-50">
-          <NText :depth="3" class="text-xs">|</NText>
-        </span>
-
-        <!-- 公安备案 -->
-        <template v-if="showPolice">
-          <a
-            v-if="appStore.policeUrl"
-            :href="appStore.policeUrl"
+            v-if="showIcp"
+            :href="appStore.icpUrl"
             target="_blank"
             rel="noopener noreferrer"
             class="text-decoration-none transition-opacity hover:opacity-70"
           >
             <NText :depth="3" class="text-xs">
-              {{ appStore.policeNumber }}
+              {{ appStore.icpNumber }}
             </NText>
           </a>
-          <NText v-else :depth="3" class="text-xs">
-            {{ appStore.policeNumber }}
-          </NText>
-        </template>
+
+          <!-- 分隔符 -->
+          <span v-if="showIcp && showPolice" class="opacity-50">
+            <NText :depth="3" class="text-xs">|</NText>
+          </span>
+
+          <!-- 公安备案 -->
+          <template v-if="showPolice">
+            <a
+              v-if="appStore.policeUrl"
+              :href="appStore.policeUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-decoration-none transition-opacity hover:opacity-70"
+            >
+              <NText :depth="3" class="text-xs">
+                {{ appStore.policeNumber }}
+              </NText>
+            </a>
+            <NText v-else :depth="3" class="text-xs">
+              {{ appStore.policeNumber }}
+            </NText>
+          </template>
+        </div>
       </div>
-    </div>
-  </NLayoutFooter>
+    </NLayoutFooter>
+  </LiquidGlassSurface>
 </template>
 
 <style scoped>
+.footer-glass {
+  display: block;
+  width: 100%;
+}
+
+.footer-glass--enabled :deep(.n-layout-footer) {
+  background-color: rgba(255, 255, 255, 0.44) !important;
+}
+
+html.dark .footer-glass--enabled :deep(.n-layout-footer) {
+  background-color: rgba(24, 24, 28, 0.54) !important;
+}
+
 /* 毛玻璃 Footer 样式 */
 .glass-footer-enabled {
   background-color: rgba(255, 255, 255, 0.7) !important;

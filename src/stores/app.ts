@@ -9,6 +9,9 @@ type Lang = 'zh-CN' | 'en-US'
 type NodeViewMode = 'card' | 'list'
 type RpcTransportMode = 'websocket' | 'http'
 type AlertType = 'default' | 'info' | 'success' | 'warning' | 'error'
+type LiquidGlassScope = 'node-card' | 'cards' | 'interface' | 'all'
+type LiquidGlassTint = 'auto' | 'transparent' | 'white' | 'black'
+type ResolvedLiquidGlassTint = Exclude<LiquidGlassTint, 'auto'>
 
 /** 默认的 List 视图列配置 */
 const DEFAULT_LIST_VIEW_COLUMNS = ['status', 'region', 'name', 'tags', 'uptime', 'os', 'cpu', 'mem', 'disk', 'traffic', 'rate'] as const
@@ -36,6 +39,13 @@ const DEFAULT_BYTE_DECIMALS: ByteDecimalsConfig = {
   MB: 1,
   GB: 1,
   TB: 2,
+}
+
+function clampNumber(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return fallback
+  }
+  return Math.min(max, Math.max(min, value))
 }
 
 const useAppStore = defineStore('app', () => {
@@ -510,6 +520,17 @@ const useAppStore = defineStore('app', () => {
     return ''
   })
 
+  // 使用 VueUse 的 usePreferredDark 检测系统主题偏好
+  const prefersDark = usePreferredDark()
+
+  // 计算当前是否为暗色模式
+  const isDark = computed(() => {
+    if (themeMode.value === 'auto') {
+      return prefersDark.value
+    }
+    return themeMode.value === 'dark'
+  })
+
   // 计算属性：自定义背景配置
   const backgroundEnabled = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -571,6 +592,86 @@ const useAppStore = defineStore('app', () => {
     return 0
   })
 
+  const liquidGlassEnabled = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.liquidGlassEnabled === 'boolean') {
+      return settings.liquidGlassEnabled
+    }
+    return false
+  })
+
+  const liquidGlassScope = computed<LiquidGlassScope>(() => {
+    const settings = publicSettings.value?.theme_settings
+    const validScopes: LiquidGlassScope[] = ['node-card', 'cards', 'interface', 'all']
+
+    if (settings && typeof settings.liquidGlassScope === 'string') {
+      const scope = settings.liquidGlassScope as LiquidGlassScope
+      if (validScopes.includes(scope)) {
+        return scope
+      }
+    }
+    return 'node-card'
+  })
+
+  const liquidGlassTint = computed<LiquidGlassTint>(() => {
+    const settings = publicSettings.value?.theme_settings
+    const validTints: LiquidGlassTint[] = ['auto', 'transparent', 'white', 'black']
+
+    if (settings && typeof settings.liquidGlassTint === 'string') {
+      const tint = settings.liquidGlassTint as LiquidGlassTint
+      if (validTints.includes(tint)) {
+        return tint
+      }
+    }
+    return 'auto'
+  })
+
+  const resolvedLiquidGlassTint = computed<ResolvedLiquidGlassTint>(() => {
+    if (liquidGlassTint.value !== 'auto') {
+      return liquidGlassTint.value
+    }
+    return isDark.value ? 'black' : 'white'
+  })
+
+  const liquidGlassStrength = computed<number>(() => {
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassStrength, 28, 0, 120)
+  })
+
+  const liquidGlassDepth = computed<number>(() => {
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassDepth, 8, 0, 32)
+  })
+
+  const liquidGlassBlur = computed<number>(() => {
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassBlur, 2, 0, 24)
+  })
+
+  const liquidGlassChromaticAberration = computed<number>(() => {
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassChromaticAberration, 0, 0, 24)
+  })
+
+  const liquidGlassOptions = computed(() => ({
+    blur: liquidGlassBlur.value,
+    chromaticAberration: liquidGlassChromaticAberration.value,
+    depth: liquidGlassDepth.value,
+    strength: liquidGlassStrength.value,
+    tint: resolvedLiquidGlassTint.value,
+  }))
+
+  function isLiquidGlassScopeEnabled(scope: 'node-card' | 'cards' | 'interface'): boolean {
+    if (!liquidGlassEnabled.value) {
+      return false
+    }
+
+    const currentScope = liquidGlassScope.value
+    if (currentScope === 'all') {
+      return true
+    }
+    if (scope === 'node-card') {
+      return currentScope === 'node-card' || currentScope === 'cards'
+    }
+    return currentScope === scope
+  }
+
   // 当 publicSettings 加载后，如果 localStorage 没有保存过视图模式或值为非法值，使用默认值
   watch(publicSettings, (settings) => {
     if (settings && !isValidViewMode(storedViewMode.value)) {
@@ -578,17 +679,6 @@ const useAppStore = defineStore('app', () => {
       storedViewMode.value = defaultViewMode.value
     }
   }, { immediate: true })
-
-  // 使用 VueUse 的 usePreferredDark 检测系统主题偏好
-  const prefersDark = usePreferredDark()
-
-  // 计算当前是否为暗色模式
-  const isDark = computed(() => {
-    if (themeMode.value === 'auto') {
-      return prefersDark.value
-    }
-    return themeMode.value === 'dark'
-  })
 
   // 计算属性：当前主题模式下的背景 URL
   const currentBackgroundUrl = computed<string>(() => {
@@ -677,6 +767,16 @@ const useAppStore = defineStore('app', () => {
     backgroundBlur,
     backgroundOverlay,
     cardBlurRadius,
+    liquidGlassEnabled,
+    liquidGlassScope,
+    liquidGlassTint,
+    resolvedLiquidGlassTint,
+    liquidGlassStrength,
+    liquidGlassDepth,
+    liquidGlassBlur,
+    liquidGlassChromaticAberration,
+    liquidGlassOptions,
+    isLiquidGlassScopeEnabled,
     isLoggedIn,
     userInfo,
     publicSettings,

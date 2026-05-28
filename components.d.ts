@@ -14,6 +14,8 @@ declare module 'vue' {
     Background: typeof import('./src/components/Background.vue')['default']
     Footer: typeof import('./src/components/Footer.vue')['default']
     Header: typeof import('./src/components/Header.vue')['default']
+    LiquidGlass: typeof import('./src/components/LiquidGlass.vue')['default']
+    LiquidGlassSurface: typeof import('./src/components/LiquidGlassSurface.vue')['default']
     LoadChart: typeof import('./src/components/LoadChart.vue')['default']
     LoadingCover: typeof import('./src/components/LoadingCover.vue')['default']
     LoginDialog: typeof import('./src/components/LoginDialog.vue')['default']

@@ -2,6 +2,7 @@
 import type { NodeData } from '@/stores/nodes'
 import { NButton, NCard, NEllipsis, NIcon, NModal, NProgress, NTag, NText, NTooltip, useThemeVars } from 'naive-ui'
 import { computed, ref } from 'vue'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import PingChart from '@/components/PingChart.vue'
 import TrafficProgress from '@/components/TrafficProgress.vue'
 import { useAppStore } from '@/stores/app'
@@ -156,10 +157,16 @@ const cardBlurClass = computed(() => {
     return 'glass-20'
   return `glass-${radius}`
 })
+
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('node-card'))
 </script>
 
 <template>
-  <div>
+  <LiquidGlassSurface
+    scope="node-card"
+    class="node-card-glass"
+    :class="{ 'node-card-glass--enabled': hasLiquidGlass }"
+  >
     <NCard
       hoverable
       class="node-card w-full cursor-pointer transition-all duration-200" :class="[
@@ -424,10 +431,31 @@ const cardBlurClass = computed(() => {
     >
       <PingChart :uuid="props.node.uuid" />
     </NModal>
-  </div>
+  </LiquidGlassSurface>
 </template>
 
 <style scoped lang="scss">
+.node-card-glass {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.node-card-glass--enabled {
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
+}
+
+.node-card-glass--enabled :deep(.n-card) {
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.46) !important;
+  border-color: rgba(255, 255, 255, 0.36) !important;
+}
+
+html.dark .node-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(24, 24, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 .node-card {
   position: relative;
   overflow: hidden;

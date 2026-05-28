@@ -3,6 +3,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { NAlert, NDivider, NEmpty, NInput, NRadioButton, NRadioGroup, NTabPane, NTabs } from 'naive-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
@@ -168,6 +169,8 @@ const blurClass = computed(() => {
     return 'glass-20'
   return `glass-${radius}`
 })
+
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 </script>
 
 <template>
@@ -187,15 +190,17 @@ const blurClass = computed(() => {
     <NDivider class="my-0! px-4!" dashed />
     <div class="node-info p-4 flex flex-col gap-4">
       <div class="search flex gap-2 items-center">
-        <NInput
-          v-model:value="searchText"
-          placeholder="搜索节点名称、地区、系统"
-          :class="[{ 'glass-input-enabled': hasBackgroundBlur }, blurClass]"
-        >
-          <template #prefix>
-            <div class="i-icon-park-outline-search" />
-          </template>
-        </NInput>
+        <LiquidGlassSurface scope="interface" class="search-glass" :class="{ 'search-glass--enabled': hasLiquidGlass }">
+          <NInput
+            v-model:value="searchText"
+            placeholder="搜索节点名称、地区、系统"
+            :class="[{ 'glass-input-enabled': hasBackgroundBlur }, blurClass]"
+          >
+            <template #prefix>
+              <div class="i-icon-park-outline-search" />
+            </template>
+          </NInput>
+        </LiquidGlassSurface>
         <NRadioGroup v-model:value="appStore.nodeViewMode" class="view-selector">
           <NRadioButton value="card" class="view-selector-item">
             <div class="i-icon-park-outline-view-grid-card" />
@@ -239,6 +244,22 @@ const blurClass = computed(() => {
 </template>
 
 <style scoped lang="scss">
+.search-glass {
+  display: block;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-glass--enabled :deep(.n-input) {
+  background-color: rgba(255, 255, 255, 0.44) !important;
+  border-color: rgba(255, 255, 255, 0.34) !important;
+}
+
+html.dark .search-glass--enabled :deep(.n-input) {
+  background-color: rgba(24, 24, 28, 0.54) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
+}
+
 .view-selector :deep(.n-radio__label) {
   width: 100%;
   height: 100%;

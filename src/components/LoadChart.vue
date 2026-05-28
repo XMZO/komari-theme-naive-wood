@@ -6,6 +6,7 @@ import dayjs from 'dayjs'
 import { NButton, NCard, NEmpty, NSpin } from 'naive-ui'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import VChart from 'vue-echarts'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytes, formatBytesSplit } from '@/utils/helper'
@@ -837,6 +838,8 @@ const blurClass = computed(() => {
   return `glass-${radius}`
 })
 
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
+
 // ==================== 生命周期 ====================
 
 watch(selectedView, () => {
@@ -882,132 +885,144 @@ onMounted(() => {
       <!-- 图表网格 -->
       <div v-else class="gap-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3">
         <!-- CPU 卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">CPU</span>
-              <div v-if="latestStatus?.cpu != null" class="text-sm flex gap-0.5 items-baseline">
-                <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus.cpu.toFixed(1) }}</span>
-                <span style="color: var(--n-text-color-3)">%</span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">CPU</span>
+                <div v-if="latestStatus?.cpu != null" class="text-sm flex gap-0.5 items-baseline">
+                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus.cpu.toFixed(1) }}</span>
+                  <span style="color: var(--n-text-color-3)">%</span>
+                </div>
+                <span v-else style="color: var(--n-text-color-3)">-</span>
               </div>
-              <span v-else style="color: var(--n-text-color-3)">-</span>
+            </template>
+            <div class="h-48">
+              <VChart :option="cpuChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="cpuChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 内存卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">内存</span>
-              <div class="text-sm flex gap-1 items-baseline">
-                <template v-if="latestStatus?.ram != null">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.ram, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.ram, appStore.byteDecimals).unit }}</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
-                <span style="color: var(--n-text-color-3)">/</span>
-                <template v-if="nodeInfo?.mem_total">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-3)' }">{{ formatBytesSplit(nodeInfo.mem_total, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(nodeInfo.mem_total, appStore.byteDecimals).unit }}</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">内存</span>
+                <div class="text-sm flex gap-1 items-baseline">
+                  <template v-if="latestStatus?.ram != null">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.ram, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.ram, appStore.byteDecimals).unit }}</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                  <span style="color: var(--n-text-color-3)">/</span>
+                  <template v-if="nodeInfo?.mem_total">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-3)' }">{{ formatBytesSplit(nodeInfo.mem_total, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(nodeInfo.mem_total, appStore.byteDecimals).unit }}</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                </div>
               </div>
+            </template>
+            <div class="h-48">
+              <VChart :option="memoryChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="memoryChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 磁盘卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">磁盘</span>
-              <div class="text-sm flex gap-1 items-baseline">
-                <template v-if="latestStatus?.disk != null">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.disk, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.disk, appStore.byteDecimals).unit }}</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
-                <span style="color: var(--n-text-color-3)">/</span>
-                <template v-if="nodeInfo?.disk_total">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-3)' }">{{ formatBytesSplit(nodeInfo.disk_total, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(nodeInfo.disk_total, appStore.byteDecimals).unit }}</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">磁盘</span>
+                <div class="text-sm flex gap-1 items-baseline">
+                  <template v-if="latestStatus?.disk != null">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.disk, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.disk, appStore.byteDecimals).unit }}</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                  <span style="color: var(--n-text-color-3)">/</span>
+                  <template v-if="nodeInfo?.disk_total">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-3)' }">{{ formatBytesSplit(nodeInfo.disk_total, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(nodeInfo.disk_total, appStore.byteDecimals).unit }}</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                </div>
               </div>
+            </template>
+            <div class="h-48">
+              <VChart :option="diskChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="diskChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 网络卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">网络</span>
-              <div class="text-sm flex gap-1 items-baseline">
-                <span style="color: var(--n-text-color-3)">↑</span>
-                <template v-if="latestStatus?.net_out != null">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.net_out, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.net_out, appStore.byteDecimals).unit }}/s</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
-                <span style="color: var(--n-text-color-3)">｜</span>
-                <span style="color: var(--n-text-color-3)">↓</span>
-                <template v-if="latestStatus?.net_in != null">
-                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.net_in, appStore.byteDecimals).value }}</span>
-                  <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.net_in, appStore.byteDecimals).unit }}/s</span>
-                </template>
-                <span v-else style="color: var(--n-text-color-3)">-</span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">网络</span>
+                <div class="text-sm flex gap-1 items-baseline">
+                  <span style="color: var(--n-text-color-3)">↑</span>
+                  <template v-if="latestStatus?.net_out != null">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.net_out, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.net_out, appStore.byteDecimals).unit }}/s</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                  <span style="color: var(--n-text-color-3)">｜</span>
+                  <span style="color: var(--n-text-color-3)">↓</span>
+                  <template v-if="latestStatus?.net_in != null">
+                    <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ formatBytesSplit(latestStatus.net_in, appStore.byteDecimals).value }}</span>
+                    <span style="color: var(--n-text-color-3)">{{ formatBytesSplit(latestStatus.net_in, appStore.byteDecimals).unit }}/s</span>
+                  </template>
+                  <span v-else style="color: var(--n-text-color-3)">-</span>
+                </div>
               </div>
+            </template>
+            <div class="h-48">
+              <VChart :option="networkChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="networkChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 连接数卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">连接</span>
-              <div class="text-sm flex gap-1 items-baseline">
-                <span style="color: var(--n-text-color-3)">TCP:</span>
-                <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus?.connections ?? '-' }}</span>
-                <span style="color: var(--n-text-color-3)">｜</span>
-                <span style="color: var(--n-text-color-3)">UDP:</span>
-                <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus?.connections_udp ?? '-' }}</span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">连接</span>
+                <div class="text-sm flex gap-1 items-baseline">
+                  <span style="color: var(--n-text-color-3)">TCP:</span>
+                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus?.connections ?? '-' }}</span>
+                  <span style="color: var(--n-text-color-3)">｜</span>
+                  <span style="color: var(--n-text-color-3)">UDP:</span>
+                  <span :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ latestStatus?.connections_udp ?? '-' }}</span>
+                </div>
               </div>
+            </template>
+            <div class="h-48">
+              <VChart :option="connectionsChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="connectionsChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
 
         <!-- 进程卡片 -->
-        <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
-          <template #header>
-            <div class="flex items-center justify-between">
-              <span class="text-base font-bold">进程</span>
-              <span class="text-sm" :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">
-                {{ latestStatus?.process ?? '-' }}
-              </span>
+        <LiquidGlassSurface scope="cards" class="chart-card-glass" :class="{ 'chart-card-glass--enabled': hasLiquidGlass }">
+          <NCard size="small" class="chart-card" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, blurClass]">
+            <template #header>
+              <div class="flex items-center justify-between">
+                <span class="text-base font-bold">进程</span>
+                <span class="text-sm" :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">
+                  {{ latestStatus?.process ?? '-' }}
+                </span>
+              </div>
+            </template>
+            <div class="h-48">
+              <VChart :option="processChartOption" autoresize />
             </div>
-          </template>
-          <div class="h-48">
-            <VChart :option="processChartOption" autoresize />
-          </div>
-        </NCard>
+          </NCard>
+        </LiquidGlassSurface>
       </div>
     </NSpin>
   </div>
@@ -1019,6 +1034,20 @@ onMounted(() => {
   --n-padding-left: 8px;
   --n-padding-right: 8px;
   --n-padding-top: 8px;
+}
+
+.chart-card-glass {
+  display: block;
+}
+
+.chart-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(255, 255, 255, 0.46) !important;
+  border-color: rgba(255, 255, 255, 0.36) !important;
+}
+
+html.dark .chart-card-glass--enabled :deep(.n-card) {
+  background-color: rgba(24, 24, 28, 0.52) !important;
+  border-color: rgba(255, 255, 255, 0.14) !important;
 }
 
 /* 毛玻璃卡片样式 */

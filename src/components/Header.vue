@@ -2,6 +2,7 @@
 import { NAvatar, NButton, NFlex, NH3, NPopover } from 'naive-ui'
 import { computed, h, inject, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import LoginDialog from './LoginDialog.vue'
 
@@ -55,6 +56,8 @@ const actionButtons = computed(() => {
   return buttons
 })
 
+const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
+
 function handleButtonClick(action: string) {
   switch (action) {
     case 'toggleTheme':
@@ -77,26 +80,51 @@ function handleButtonClick(action: string) {
 </script>
 
 <template>
-  <div class="transition-all duration-200 top-0 position-sticky z-10" :class="isScrolled ? 'bg-$n-color shadow-sm backdrop-blur-md' : 'bg-transparent'">
-    <div class="px-4 flex-between h-16" :style="containerStyle">
-      <NFlex class="flex-center cursor-pointer" @click="router.push('/')">
-        <NAvatar :src="siteFavicon" round />
-        <NH3 class="m-0">
-          {{ appStore.publicSettings?.sitename || 'Komari Monitor' }}
-        </NH3>
-      </NFlex>
-      <NFlex class="flex gap-4">
-        <NPopover v-for="button in actionButtons" :key="button.action" :disabled="button.disabled">
-          <template #trigger>
-            <NButton :disabled="button.disabled" class="p-2 h-8 w-8" text @click="handleButtonClick(button.action)">
-              <div :class="button.icon" />
-            </NButton>
-          </template>
-          <template #default>
-            {{ button.title }}
-          </template>
-        </NPopover>
-      </NFlex>
-    </div>
+  <div class="top-0 position-sticky z-10">
+    <LiquidGlassSurface
+      scope="interface"
+      :enabled="isScrolled"
+      class="header-glass transition-all duration-200"
+      :class="[
+        isScrolled ? 'bg-$n-color shadow-sm backdrop-blur-md' : 'bg-transparent',
+        { 'header-glass--enabled': hasLiquidGlass && isScrolled },
+      ]"
+    >
+      <div class="px-4 flex-between h-16" :style="containerStyle">
+        <NFlex class="flex-center cursor-pointer" @click="router.push('/')">
+          <NAvatar :src="siteFavicon" round />
+          <NH3 class="m-0">
+            {{ appStore.publicSettings?.sitename || 'Komari Monitor' }}
+          </NH3>
+        </NFlex>
+        <NFlex class="flex gap-4">
+          <NPopover v-for="button in actionButtons" :key="button.action" :disabled="button.disabled">
+            <template #trigger>
+              <NButton :disabled="button.disabled" class="p-2 h-8 w-8" text @click="handleButtonClick(button.action)">
+                <div :class="button.icon" />
+              </NButton>
+            </template>
+            <template #default>
+              {{ button.title }}
+            </template>
+          </NPopover>
+        </NFlex>
+      </div>
+    </LiquidGlassSurface>
   </div>
 </template>
+
+<style scoped lang="scss">
+.header-glass {
+  display: block;
+  width: 100%;
+}
+
+.header-glass--enabled {
+  background-color: rgba(255, 255, 255, 0.44) !important;
+}
+
+html.dark .header-glass--enabled {
+  background-color: rgba(24, 24, 28, 0.54) !important;
+}
+</style>
