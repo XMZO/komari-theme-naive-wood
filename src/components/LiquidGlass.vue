@@ -10,6 +10,7 @@ const props = withDefaults(defineProps<{
   enabled?: boolean
   as?: 'div' | 'span'
   tint?: 'transparent' | 'black' | 'white'
+  backgroundUrl?: string
   blur?: number
   chromaticAberration?: number
   depth?: number
@@ -20,6 +21,7 @@ const props = withDefaults(defineProps<{
   enabled: true,
   as: 'div',
   tint: 'transparent',
+  backgroundUrl: '',
   blur: 0,
   chromaticAberration: 0,
   depth: 10,
@@ -39,6 +41,7 @@ useLiquidGlass(rootRef, {
   enabled: () => props.enabled,
   contentElement: contentRef,
   filterElement: filterRef,
+  backgroundUrl: () => props.backgroundUrl,
   blur: () => props.blur,
   chromaticAberration: () => props.chromaticAberration,
   depth: () => props.depth,
@@ -87,15 +90,25 @@ useLiquidGlass(rootRef, {
 }
 
 .liquid-glass__overlay--transparent {
-  background: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.24),
+    rgba(255, 255, 255, 0.04) 55%,
+    rgba(255, 255, 255, 0.16)
+  );
 }
 
 .liquid-glass__overlay--black {
-  background: rgba(0, 0, 0, 0.3);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(0, 0, 0, 0.24) 55%, rgba(255, 255, 255, 0.06));
 }
 
 .liquid-glass__overlay--white {
-  background: rgba(255, 255, 255, 0.1);
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.34),
+    rgba(255, 255, 255, 0.08) 55%,
+    rgba(255, 255, 255, 0.2)
+  );
 }
 
 .liquid-glass__content {
@@ -107,21 +120,30 @@ useLiquidGlass(rootRef, {
 
 .liquid-glass__filter {
   z-index: 2;
+  background-repeat: no-repeat;
 }
 
 .liquid-glass__filter--black {
-  background: #09090b80;
-  box-shadow: inset 0 0 4px 0 #fafafa80;
-  filter: brightness(0.6);
+  background-color: #09090b1f;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 12px 30px rgba(0, 0, 0, 0.18);
 }
 
 .liquid-glass__filter--white {
-  background: #fafafa80;
-  box-shadow: inset 0 0 4px 0 #fafafa80;
+  background-color: #fafafa1f;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 12px 30px rgba(0, 0, 0, 0.08);
 }
 
 .liquid-glass__filter--transparent {
-  background: #09090b00;
-  box-shadow: inset 0 0 4px 0 #fafafa80;
+  background-color: #09090b00;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.26),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 12px 30px rgba(0, 0, 0, 0.1);
 }
 </style>

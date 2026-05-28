@@ -3,6 +3,7 @@ import type { ByteDecimalsConfig, UptimeFormat } from '@/utils/helper'
 import { usePreferredDark, useStorageAsync } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { supportsLiquidGlassBackdropFilter } from '@/utils/liquidGlass'
 
 type ThemeMode = 'auto' | 'light' | 'dark'
 type Lang = 'zh-CN' | 'en-US'
@@ -567,6 +568,14 @@ const useAppStore = defineStore('app', () => {
     return ''
   })
 
+  // 计算属性：当前主题模式下的背景 URL
+  const currentBackgroundUrl = computed<string>(() => {
+    if (isDark.value) {
+      return darkBackgroundUrl.value
+    }
+    return lightBackgroundUrl.value
+  })
+
   const backgroundBlur = computed<number>(() => {
     const settings = publicSettings.value?.theme_settings
     if (settings && typeof settings.backgroundBlur === 'number' && settings.backgroundBlur >= 0) {
@@ -634,19 +643,19 @@ const useAppStore = defineStore('app', () => {
   })
 
   const liquidGlassStrength = computed<number>(() => {
-    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassStrength, 28, 0, 120)
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassStrength, 48, 0, 120)
   })
 
   const liquidGlassDepth = computed<number>(() => {
-    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassDepth, 8, 0, 32)
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassDepth, 10, 0, 32)
   })
 
   const liquidGlassBlur = computed<number>(() => {
-    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassBlur, 2, 0, 24)
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassBlur, 0, 0, 24)
   })
 
   const liquidGlassChromaticAberration = computed<number>(() => {
-    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassChromaticAberration, 0, 0, 24)
+    return clampNumber(publicSettings.value?.theme_settings?.liquidGlassChromaticAberration, 2, 0, 24)
   })
 
   const liquidGlassOptions = computed(() => ({
@@ -657,8 +666,15 @@ const useAppStore = defineStore('app', () => {
     tint: resolvedLiquidGlassTint.value,
   }))
 
+  const liquidGlassRenderable = computed<boolean>(() => {
+    if (supportsLiquidGlassBackdropFilter()) {
+      return true
+    }
+    return backgroundEnabled.value && backgroundType.value === 'image' && currentBackgroundUrl.value.trim().length > 0
+  })
+
   function isLiquidGlassScopeEnabled(scope: 'node-card' | 'cards' | 'interface'): boolean {
-    if (!liquidGlassEnabled.value) {
+    if (!liquidGlassEnabled.value || !liquidGlassRenderable.value) {
       return false
     }
 
@@ -679,14 +695,6 @@ const useAppStore = defineStore('app', () => {
       storedViewMode.value = defaultViewMode.value
     }
   }, { immediate: true })
-
-  // 计算属性：当前主题模式下的背景 URL
-  const currentBackgroundUrl = computed<string>(() => {
-    if (isDark.value) {
-      return darkBackgroundUrl.value
-    }
-    return lightBackgroundUrl.value
-  })
 
   function updateThemeMode(mode?: ThemeMode) {
     if (mode) {
@@ -776,6 +784,7 @@ const useAppStore = defineStore('app', () => {
     liquidGlassBlur,
     liquidGlassChromaticAberration,
     liquidGlassOptions,
+    liquidGlassRenderable,
     isLiquidGlassScopeEnabled,
     isLoggedIn,
     userInfo,

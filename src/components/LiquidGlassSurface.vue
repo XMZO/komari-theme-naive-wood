@@ -23,6 +23,7 @@ const options = computed(() => appStore.liquidGlassOptions)
     :as="props.as"
     :enabled="enabled"
     :tint="options.tint"
+    :background-url="appStore.backgroundType === 'image' ? appStore.currentBackgroundUrl : ''"
     :blur="options.blur"
     :chromatic-aberration="options.chromaticAberration"
     :depth="options.depth"

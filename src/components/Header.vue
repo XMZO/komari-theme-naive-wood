@@ -121,10 +121,10 @@ function handleButtonClick(action: string) {
 }
 
 .header-glass--enabled {
-  background-color: rgba(255, 255, 255, 0.44) !important;
+  background-color: transparent !important;
 }
 
 html.dark .header-glass--enabled {
-  background-color: rgba(24, 24, 28, 0.54) !important;
+  background-color: transparent !important;
 }
 </style>

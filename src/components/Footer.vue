@@ -166,11 +166,11 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
 }
 
 .footer-glass--enabled :deep(.n-layout-footer) {
-  background-color: rgba(255, 255, 255, 0.44) !important;
+  background-color: transparent !important;
 }
 
 html.dark .footer-glass--enabled :deep(.n-layout-footer) {
-  background-color: rgba(24, 24, 28, 0.54) !important;
+  background-color: transparent !important;
 }
 
 /* 毛玻璃 Footer 样式 */

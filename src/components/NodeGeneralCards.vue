@@ -274,13 +274,14 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 }
 
 .general-card-glass--enabled :deep(.n-card) {
-  background-color: rgba(255, 255, 255, 0.46) !important;
-  border-color: rgba(255, 255, 255, 0.36) !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.42) !important;
+  box-shadow: none !important;
 }
 
 html.dark .general-card-glass--enabled :deep(.n-card) {
-  background-color: rgba(24, 24, 28, 0.52) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
 .light-general-contrast :deep(.n-card) {

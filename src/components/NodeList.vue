@@ -634,21 +634,21 @@ const columnTitles: Record<string, string> = {
 }
 
 .node-list-glass--enabled :deep(.n-list) {
-  background-color: rgba(255, 255, 255, 0.44) !important;
-  border-color: rgba(255, 255, 255, 0.34) !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.38) !important;
 }
 
 .node-list-glass--enabled :deep(.n-list-item) {
-  background-color: rgba(255, 255, 255, 0.22) !important;
+  background-color: transparent !important;
 }
 
 html.dark .node-list-glass--enabled :deep(.n-list) {
-  background-color: rgba(24, 24, 28, 0.54) !important;
-  border-color: rgba(255, 255, 255, 0.14) !important;
+  background-color: transparent !important;
+  border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
 html.dark .node-list-glass--enabled :deep(.n-list-item) {
-  background-color: rgba(24, 24, 28, 0.32) !important;
+  background-color: transparent !important;
 }
 
 :deep(.n-list__header) {

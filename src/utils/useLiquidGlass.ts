@@ -6,6 +6,7 @@ export interface UseLiquidGlassOptions {
   enabled?: MaybeRefOrGetter<boolean>
   contentElement?: MaybeRefOrGetter<HTMLElement | null | undefined>
   filterElement?: MaybeRefOrGetter<HTMLElement | null | undefined>
+  backgroundUrl?: MaybeRefOrGetter<string>
   blur?: MaybeRefOrGetter<number>
   chromaticAberration?: MaybeRefOrGetter<number>
   depth?: MaybeRefOrGetter<number>
@@ -16,6 +17,7 @@ export interface UseLiquidGlassOptions {
 
 export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiquidGlassOptions = {}) {
   let resizeObserver: ResizeObserver | undefined
+  let lastRenderKey = ''
 
   function getEnabled() {
     return toValue(options.enabled) ?? true
@@ -27,6 +29,18 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
 
   function getContentElement() {
     return toValue(options.contentElement) ?? target.value
+  }
+
+  function clearGlassElement(glassElement: HTMLElement) {
+    lastRenderKey = ''
+    glassElement.style.removeProperty('width')
+    glassElement.style.removeProperty('height')
+    glassElement.style.removeProperty('background-image')
+    glassElement.style.removeProperty('background-size')
+    glassElement.style.removeProperty('background-position')
+    glassElement.style.removeProperty('backdrop-filter')
+    glassElement.style.removeProperty('-webkit-backdrop-filter')
+    glassElement.style.removeProperty('filter')
   }
 
   function readBorderRadius(element: HTMLElement): number {
@@ -67,7 +81,35 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     const strength = toValue(options.strength) ?? 100
     const brightness = toValue(options.brightness) ?? 1.1
     const saturate = toValue(options.saturate) ?? 1.5
+    const backgroundUrl = toValue(options.backgroundUrl)?.trim()
     const radius = readBorderRadius(target.value ?? contentElement) || readBorderRadius(contentElement)
+    const renderKey = [
+      width,
+      height,
+      Math.round(radius),
+      depth,
+      strength,
+      chromaticAberration,
+      blur,
+      brightness,
+      saturate,
+      backgroundUrl,
+      supportsLiquidGlassBackdropFilter(),
+    ].join(':')
+
+    if (renderKey === lastRenderKey) {
+      return
+    }
+    lastRenderKey = renderKey
+
+    const filter = getLiquidGlassDisplacementFilter({
+      height,
+      width,
+      radius,
+      depth,
+      strength,
+      chromaticAberration,
+    })
 
     glassElement.style.width = `${width}px`
     glassElement.style.height = `${height}px`
@@ -76,21 +118,27 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     }
 
     if (supportsLiquidGlassBackdropFilter()) {
-      const filter = getLiquidGlassDisplacementFilter({
-        height,
-        width,
-        radius,
-        depth,
-        strength,
-        chromaticAberration,
-      })
+      glassElement.style.removeProperty('background-image')
+      glassElement.style.removeProperty('background-size')
+      glassElement.style.removeProperty('background-position')
+      glassElement.style.removeProperty('filter')
       glassElement.style.backdropFilter = `blur(${blur / 2}px) url('${filter}') blur(${blur}px) brightness(${brightness}) saturate(${saturate})`
       glassElement.style.removeProperty('-webkit-backdrop-filter')
       return
     }
 
-    glassElement.style.setProperty('-webkit-backdrop-filter', `blur(${Math.max(8, width / 10)}px) saturate(180%)`)
+    glassElement.style.removeProperty('-webkit-backdrop-filter')
     glassElement.style.removeProperty('backdrop-filter')
+
+    if (backgroundUrl) {
+      glassElement.style.backgroundImage = `url("${backgroundUrl}")`
+      glassElement.style.backgroundSize = 'cover'
+      glassElement.style.backgroundPosition = 'center'
+      glassElement.style.filter = `url('${filter}') blur(${blur}px) brightness(${brightness}) saturate(${saturate})`
+      return
+    }
+
+    clearGlassElement(glassElement)
   }
 
   watchEffect((onCleanup) => {
@@ -98,6 +146,10 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     resizeObserver = undefined
 
     if (!getEnabled()) {
+      const glassElement = getLiquidGlassElement()
+      if (glassElement) {
+        clearGlassElement(glassElement)
+      }
       return
     }
 

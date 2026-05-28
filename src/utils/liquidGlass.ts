@@ -17,6 +17,9 @@ export interface LiquidGlassDisplacementOptions {
 
 type DisplacementMapOptions = Omit<LiquidGlassDisplacementOptions, 'chromaticAberration' | 'strength'>
 
+const filterCache = new Map<string, string>()
+const MAX_FILTER_CACHE_SIZE = 80
+
 function encodeSvg(svg: string): string {
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`
 }
@@ -85,14 +88,24 @@ export function getLiquidGlassDisplacementFilter({
 }: LiquidGlassDisplacementOptions): string {
   const safeWidth = Math.max(1, Math.round(width))
   const safeHeight = Math.max(1, Math.round(height))
+  const safeRadius = Math.max(0, Math.round(radius))
+  const safeDepth = Math.max(0, Math.round(depth))
+  const safeStrength = Math.max(0, Math.round(strength))
+  const safeChromaticAberration = Math.max(0, Math.round(chromaticAberration))
+  const cacheKey = `${safeWidth}:${safeHeight}:${safeRadius}:${safeDepth}:${safeStrength}:${safeChromaticAberration}`
+  const cached = filterCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
   const displacementMap = getLiquidGlassDisplacementMap({
     height: safeHeight,
     width: safeWidth,
-    radius,
-    depth,
+    radius: safeRadius,
+    depth: safeDepth,
   })
 
-  return `${encodeSvg(`<svg height="${safeHeight}" width="${safeWidth}" viewBox="0 0 ${safeWidth} ${safeHeight}" xmlns="http://www.w3.org/2000/svg">
+  const filter = `${encodeSvg(`<svg height="${safeHeight}" width="${safeWidth}" viewBox="0 0 ${safeWidth} ${safeHeight}" xmlns="http://www.w3.org/2000/svg">
     <defs>
       <filter id="displace" color-interpolation-filters="sRGB">
         <feImage x="0" y="0" height="${safeHeight}" width="${safeWidth}" href="${displacementMap}" result="displacementMap" />
@@ -100,7 +113,7 @@ export function getLiquidGlassDisplacementFilter({
           transform-origin="center"
           in="SourceGraphic"
           in2="displacementMap"
-          scale="${strength + chromaticAberration * 2}"
+          scale="${safeStrength + safeChromaticAberration * 2}"
           xChannelSelector="R"
           yChannelSelector="G"
         />
@@ -115,7 +128,7 @@ export function getLiquidGlassDisplacementFilter({
         <feDisplacementMap
           in="SourceGraphic"
           in2="displacementMap"
-          scale="${strength + chromaticAberration}"
+          scale="${safeStrength + safeChromaticAberration}"
           xChannelSelector="R"
           yChannelSelector="G"
         />
@@ -130,7 +143,7 @@ export function getLiquidGlassDisplacementFilter({
         <feDisplacementMap
           in="SourceGraphic"
           in2="displacementMap"
-          scale="${strength}"
+          scale="${safeStrength}"
           xChannelSelector="R"
           yChannelSelector="G"
         />
@@ -147,6 +160,16 @@ export function getLiquidGlassDisplacementFilter({
       </filter>
     </defs>
   </svg>`)}#displace`
+
+  filterCache.set(cacheKey, filter)
+  if (filterCache.size > MAX_FILTER_CACHE_SIZE) {
+    const oldestKey = filterCache.keys().next().value
+    if (oldestKey) {
+      filterCache.delete(oldestKey)
+    }
+  }
+
+  return filter
 }
 
 export function supportsLiquidGlassBackdropFilter(): boolean {
