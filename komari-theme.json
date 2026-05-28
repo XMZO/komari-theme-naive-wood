@@ -2,7 +2,7 @@
   "name": "Komari Naive",
   "short": "Naive",
   "description": "A naive-ui theme for Komari",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "author": "lyimoexiao",
   "url": "https://github.com/XMZO/komari-theme-naive-wood",
   "preview": "preview.png",
@@ -75,13 +75,13 @@
       { "key": "backgroundBlur", "name": "背景模糊半径", "type": "number", "default": 0, "help": "背景的高斯模糊半径（单位：px），0 表示不模糊" },
       { "key": "backgroundOverlay", "name": "背景遮罩透明度", "type": "number", "default": 0, "help": "背景遮罩层的透明度（0-100），0 表示无遮罩，数值越大遮罩越深" },
       { "name": "液体玻璃效果", "type": "title" },
-      { "key": "liquidGlassEnabled", "name": "启用液体玻璃", "type": "switch", "default": false, "help": "使用真实 SVG 位移滤镜实现液体玻璃效果。该效果较吃性能，建议按需开启" },
+      { "key": "liquidGlassEnabled", "name": "启用液体玻璃", "type": "switch", "default": false, "help": "启用非实时伪渲染玻璃层，不使用 SVG 滤镜、WebGL 或 backdrop-filter，适合节点较多的页面" },
       { "key": "liquidGlassScope", "name": "液体玻璃范围", "type": "select", "default": "node-card", "options": "node-card,cards,interface,all", "help": "node-card 仅节点卡片；cards 包含节点、概览、详情和图表卡片；interface 包含列表、搜索框和页脚；all 为全部界面" },
       { "key": "liquidGlassTint", "name": "液体玻璃底色", "type": "select", "default": "auto", "options": "auto,transparent,white,black", "help": "auto 会根据明暗模式自动选择，transparent 更通透，white/black 更厚重" },
-      { "key": "liquidGlassStrength", "name": "折射强度", "type": "number", "default": 48, "help": "液体玻璃位移强度，建议 24-72，过高会更明显也更容易影响可读性" },
-      { "key": "liquidGlassDepth", "name": "边缘深度", "type": "number", "default": 10, "help": "控制边缘折射区域深度，建议 6-18" },
-      { "key": "liquidGlassBlur", "name": "玻璃模糊", "type": "number", "default": 0, "help": "玻璃自身的模糊半径（单位：px），0 表示不额外模糊" },
-      { "key": "liquidGlassChromaticAberration", "name": "色散强度", "type": "number", "default": 2, "help": "边缘彩色偏移强度，0 表示关闭，建议 0-4" }
+      { "key": "liquidGlassStrength", "name": "高光强度", "type": "number", "default": 48, "help": "控制伪玻璃高光强度，建议 24-72" },
+      { "key": "liquidGlassDepth", "name": "边缘厚度", "type": "number", "default": 10, "help": "控制边缘高光和内阴影厚度，建议 6-18" },
+      { "key": "liquidGlassBlur", "name": "柔和度", "type": "number", "default": 0, "help": "控制伪玻璃内阴影柔和度，不会模糊背景" },
+      { "key": "liquidGlassChromaticAberration", "name": "色散强度", "type": "number", "default": 2, "help": "边缘伪色散偏移强度，0 表示关闭，建议 0-4" }
     ]
   }
 }

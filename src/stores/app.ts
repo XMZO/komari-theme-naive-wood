@@ -3,7 +3,6 @@ import type { ByteDecimalsConfig, UptimeFormat } from '@/utils/helper'
 import { usePreferredDark, useStorageAsync } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
-import { supportsLiquidGlassBackdropFilter } from '@/utils/liquidGlass'
 
 type ThemeMode = 'auto' | 'light' | 'dark'
 type Lang = 'zh-CN' | 'en-US'
@@ -666,15 +665,8 @@ const useAppStore = defineStore('app', () => {
     tint: resolvedLiquidGlassTint.value,
   }))
 
-  const liquidGlassRenderable = computed<boolean>(() => {
-    if (supportsLiquidGlassBackdropFilter()) {
-      return true
-    }
-    return backgroundEnabled.value && backgroundType.value === 'image' && currentBackgroundUrl.value.trim().length > 0
-  })
-
   function isLiquidGlassScopeEnabled(scope: 'node-card' | 'cards' | 'interface'): boolean {
-    if (!liquidGlassEnabled.value || !liquidGlassRenderable.value) {
+    if (!liquidGlassEnabled.value) {
       return false
     }
 
@@ -784,7 +776,6 @@ const useAppStore = defineStore('app', () => {
     liquidGlassBlur,
     liquidGlassChromaticAberration,
     liquidGlassOptions,
-    liquidGlassRenderable,
     isLiquidGlassScopeEnabled,
     isLoggedIn,
     userInfo,

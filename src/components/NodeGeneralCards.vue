@@ -295,7 +295,7 @@ html.dark .general-card-glass--enabled :deep(.n-card) {
   background-color: rgba(255, 255, 255, 0.7) !important;
 
   &:hover {
-    filter: brightness(0.95);
+    background-color: rgba(245, 245, 247, 0.74) !important;
   }
 }
 
@@ -303,7 +303,7 @@ html.dark .glass-card-enabled {
   background-color: rgba(24, 24, 28, 0.85) !important;
 
   &:hover {
-    filter: brightness(1.1);
+    background-color: rgba(31, 31, 36, 0.9) !important;
   }
 }
 </style>

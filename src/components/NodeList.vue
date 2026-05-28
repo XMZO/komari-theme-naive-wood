@@ -698,9 +698,7 @@ html.dark .node-list-glass--enabled :deep(.n-list-item) {
 .node-offline-overlay__mask {
   align-self: stretch;
   height: 100%;
-  background-color: color-mix(in srgb, var(--n-color) 76%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background-color: color-mix(in srgb, var(--n-color) 88%, transparent);
 }
 
 .node-offline-overlay__region,

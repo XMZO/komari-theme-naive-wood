@@ -473,9 +473,7 @@ html.dark .node-card-glass--enabled :deep(.n-card) {
   pointer-events: none;
   border-radius: inherit;
   border: 1px solid color-mix(in srgb, var(--n-border-color) 72%, transparent);
-  background-color: color-mix(in srgb, var(--n-color) 76%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+  background-color: color-mix(in srgb, var(--n-color) 88%, transparent);
   transition: opacity 200ms ease;
 }
 
@@ -501,7 +499,7 @@ html.dark .node-card-glass--enabled :deep(.n-card) {
 
 .n-card .shrink-0.n-icon ~ .flex.shrink-0.has-tags {
   position: absolute;
-  backdrop-filter: blur(8px);
+  background-color: color-mix(in srgb, var(--n-color) 88%, transparent);
   padding: 12px 22px 19px;
   border-radius: 10px;
   left: 1px;
@@ -538,7 +536,7 @@ html.dark .node-card-glass--enabled :deep(.n-card) {
   border-radius: var(--n-border-radius);
 
   &:hover {
-    filter: brightness(0.95);
+    background-color: rgba(245, 245, 247, 0.74) !important;
   }
 }
 
@@ -546,7 +544,7 @@ html.dark .glass-card-enabled {
   background-color: rgba(24, 24, 28, 0.85) !important;
 
   &:hover {
-    filter: brightness(1.1);
+    background-color: rgba(31, 31, 36, 0.9) !important;
   }
 }
 

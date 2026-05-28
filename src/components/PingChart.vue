@@ -362,7 +362,7 @@ const baseTooltipConfig = computed(() => ({
     fontSize: 13,
     lineHeight: 20,
   },
-  extraCssText: 'box-shadow: none; backdrop-filter: blur(8px);',
+  extraCssText: 'box-shadow: none;',
   axisPointer: {
     type: 'cross' as const,
     crossStyle: {
