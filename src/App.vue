@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import Background from './components/Background.vue'
 import Footer from './components/Footer.vue'
 import Header from './components/Header.vue'
+import LiquidGlassDefs from './components/LiquidGlassDefs.vue'
 import LoadingCover from './components/LoadingCover.vue'
 import Provider from './components/Provider.vue'
 import { useAppStore } from './stores/app'
@@ -47,6 +48,7 @@ onUnmounted(() => {
 
 <template>
   <Provider>
+    <LiquidGlassDefs />
     <Background />
     <Transition
       enter-active-class="transition-all duration-100 ease-out"
