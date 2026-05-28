@@ -260,7 +260,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
 html.dark .detail-card-glass--enabled :deep(.n-card) {
   background-color: transparent !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
 }
 
 /* 亮色模式高对比度样式 */

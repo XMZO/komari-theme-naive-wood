@@ -94,6 +94,20 @@ const themeOverride = computed<GlobalThemeOverrides>(() => {
     ? (settings?.darkPrimaryColorPressed as string) || '#5acea7'
     : (settings?.lightPrimaryColorPressed as string) || '#0c7a43'
 
+  const liquidGlassContrast = appStore.liquidGlassEnabled
+    ? isDark.value
+      ? {
+          textColor1: 'rgba(255, 255, 255, 0.96)',
+          textColor2: 'rgba(241, 245, 249, 0.9)',
+          textColor3: 'rgba(203, 213, 225, 0.78)',
+        }
+      : {
+          textColor1: 'rgba(17, 24, 39, 0.96)',
+          textColor2: 'rgba(31, 41, 55, 0.9)',
+          textColor3: 'rgba(75, 85, 99, 0.84)',
+        }
+    : {}
+
   return {
     common: {
       primaryColor,
@@ -102,6 +116,7 @@ const themeOverride = computed<GlobalThemeOverrides>(() => {
       primaryColorSuppl: primaryColorHover,
       borderRadius,
       fontFamily,
+      ...liquidGlassContrast,
     },
   }
 })

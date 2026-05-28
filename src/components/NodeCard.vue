@@ -452,9 +452,17 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('node-c
   box-shadow: none !important;
 }
 
+.node-card-glass--enabled :deep(.n-progress-graph-line-rail) {
+  background-color: rgba(15, 23, 42, 0.18) !important;
+}
+
 html.dark .node-card-glass--enabled :deep(.n-card) {
   background-color: transparent !important;
-  border-color: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+}
+
+html.dark .node-card-glass--enabled :deep(.n-progress-graph-line-rail) {
+  background-color: rgba(255, 255, 255, 0.22) !important;
 }
 
 .node-card {

@@ -80,6 +80,27 @@ const styleVars = computed(() => {
     inset 0 0 0 1px rgba(255, 255, 255, 0.28);
 }
 
+.liquid-glass--enabled > .liquid-glass__content {
+  --n-text-color: rgba(17, 24, 39, 0.92);
+  --n-text-color-1: rgba(17, 24, 39, 0.96);
+  --n-text-color-2: rgba(31, 41, 55, 0.9);
+  --n-text-color-3: rgba(75, 85, 99, 0.84);
+  color: var(--n-text-color);
+}
+
+html.dark .liquid-glass--enabled {
+  box-shadow:
+    0 20px 46px rgba(0, 0, 0, calc(var(--lg-shadow) + 0.26)),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.11);
+}
+
+html.dark .liquid-glass--enabled > .liquid-glass__content {
+  --n-text-color: rgba(248, 250, 252, 0.94);
+  --n-text-color-1: rgba(255, 255, 255, 0.96);
+  --n-text-color-2: rgba(241, 245, 249, 0.9);
+  --n-text-color-3: rgba(203, 213, 225, 0.78);
+}
+
 .liquid-glass__material,
 .liquid-glass__tint,
 .liquid-glass__rim,
@@ -112,9 +133,11 @@ const styleVars = computed(() => {
 }
 
 .liquid-glass--black > .liquid-glass__material {
-  background-color: rgba(8, 8, 12, 0.18);
-  backdrop-filter: blur(var(--lg-blur)) url('#komari-liquid-glass-distortion') saturate(1.28) brightness(0.9);
-  -webkit-backdrop-filter: blur(var(--lg-blur)) url('#komari-liquid-glass-distortion') saturate(1.28) brightness(0.9);
+  background-color: rgba(3, 5, 9, 0.46);
+  backdrop-filter: blur(var(--lg-blur)) url('#komari-liquid-glass-distortion') saturate(1.08) brightness(0.58)
+    contrast(1.18);
+  -webkit-backdrop-filter: blur(var(--lg-blur)) url('#komari-liquid-glass-distortion') saturate(1.08) brightness(0.58)
+    contrast(1.18);
 }
 
 .liquid-glass__tint {
@@ -135,8 +158,9 @@ const styleVars = computed(() => {
 
 .liquid-glass--black > .liquid-glass__tint {
   background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.09), rgba(0, 0, 0, 0.22) 55%, rgba(255, 255, 255, 0.06)),
-    radial-gradient(90% 70% at 18% 0%, rgba(255, 255, 255, calc(var(--lg-strength) * 0.48)), transparent 60%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.5) 56%, rgba(255, 255, 255, 0.025)),
+    radial-gradient(90% 70% at 18% 0%, rgba(255, 255, 255, calc(var(--lg-strength) * 0.18)), transparent 56%),
+    rgba(4, 6, 11, 0.34);
 }
 
 .liquid-glass__rim {
@@ -147,6 +171,15 @@ const styleVars = computed(() => {
     inset 0 -2px 4px rgba(0, 0, 0, 0.24),
     inset var(--lg-depth) 0 calc(var(--lg-depth) * 1.35) rgba(255, 255, 255, 0.1),
     inset calc(var(--lg-depth) * -1) 0 calc(var(--lg-depth) * 1.2) rgba(0, 0, 0, 0.1);
+}
+
+.liquid-glass--black > .liquid-glass__rim {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, calc(var(--lg-shine) * 0.34)),
+    inset 0 1px 2px rgba(255, 255, 255, calc(var(--lg-shine) * 0.32)),
+    inset 0 -2px 5px rgba(0, 0, 0, 0.5),
+    inset var(--lg-depth) 0 calc(var(--lg-depth) * 1.25) rgba(255, 255, 255, 0.035),
+    inset calc(var(--lg-depth) * -1) 0 calc(var(--lg-depth) * 1.15) rgba(0, 0, 0, 0.28);
 }
 
 .liquid-glass__specular {
@@ -162,6 +195,10 @@ const styleVars = computed(() => {
     );
 }
 
+.liquid-glass--black > .liquid-glass__specular {
+  opacity: 0.42;
+}
+
 .liquid-glass__chroma {
   z-index: 4;
   opacity: 0.45;
@@ -170,6 +207,10 @@ const styleVars = computed(() => {
     inset calc(var(--lg-chroma) * -1) 0 0 rgba(80, 150, 255, 0.5),
     inset 0 var(--lg-chroma) 0 rgba(255, 245, 160, 0.2),
     inset 0 calc(var(--lg-chroma) * -1) 0 rgba(90, 190, 255, 0.16);
+}
+
+.liquid-glass--black > .liquid-glass__chroma {
+  opacity: 0.28;
 }
 
 .liquid-glass__content {
