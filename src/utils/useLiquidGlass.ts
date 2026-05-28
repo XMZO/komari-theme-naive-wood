@@ -1,5 +1,5 @@
 import type { MaybeRefOrGetter, Ref } from 'vue'
-import { onBeforeUnmount, toValue, watchEffect } from 'vue'
+import { nextTick, onBeforeUnmount, toValue, watch } from 'vue'
 import { getLiquidGlassDisplacementFilter, supportsLiquidGlassBackdropFilter } from '@/utils/liquidGlass'
 
 export interface UseLiquidGlassOptions {
@@ -16,8 +16,8 @@ export interface UseLiquidGlassOptions {
 }
 
 export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiquidGlassOptions = {}) {
-  let resizeObserver: ResizeObserver | undefined
   let lastRenderKey = ''
+  let redrawTimer: number | undefined
 
   function getEnabled() {
     return toValue(options.enabled) ?? true
@@ -60,6 +60,17 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     return 0
   }
 
+  function getStaticSize(element: HTMLElement) {
+    const rect = element.getBoundingClientRect()
+    const width = Math.max(1, Math.round(rect.width))
+    const height = Math.max(1, Math.round(rect.height))
+
+    return {
+      width,
+      height,
+    }
+  }
+
   function redraw() {
     if (!getEnabled())
       return
@@ -69,9 +80,7 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     if (!glassElement || !contentElement)
       return
 
-    const rect = contentElement.getBoundingClientRect()
-    const width = Math.round(rect.width)
-    const height = Math.round(rect.height)
+    const { width, height } = getStaticSize(contentElement)
     if (width <= 0 || height <= 0)
       return
 
@@ -141,35 +150,51 @@ export function useLiquidGlass(target: Ref<HTMLElement | null>, options: UseLiqu
     clearGlassElement(glassElement)
   }
 
-  watchEffect((onCleanup) => {
-    resizeObserver?.disconnect()
-    resizeObserver = undefined
-
-    if (!getEnabled()) {
-      const glassElement = getLiquidGlassElement()
-      if (glassElement) {
-        clearGlassElement(glassElement)
-      }
-      return
+  function scheduleRedraw() {
+    if (redrawTimer !== undefined) {
+      window.clearTimeout(redrawTimer)
     }
 
-    const contentElement = getContentElement()
-    if (!contentElement)
-      return
+    redrawTimer = window.setTimeout(() => {
+      redrawTimer = undefined
+      redraw()
+    }, 80)
+  }
 
-    redraw()
-    resizeObserver = new ResizeObserver(redraw)
-    resizeObserver.observe(contentElement)
+  watch(
+    [
+      target,
+      () => toValue(options.enabled),
+      () => toValue(options.contentElement),
+      () => toValue(options.filterElement),
+      () => toValue(options.backgroundUrl),
+      () => toValue(options.blur),
+      () => toValue(options.chromaticAberration),
+      () => toValue(options.depth),
+      () => toValue(options.strength),
+      () => toValue(options.brightness),
+      () => toValue(options.saturate),
+    ],
+    async () => {
+      if (!getEnabled()) {
+        const glassElement = getLiquidGlassElement()
+        if (glassElement) {
+          clearGlassElement(glassElement)
+        }
+        return
+      }
 
-    onCleanup(() => {
-      resizeObserver?.disconnect()
-      resizeObserver = undefined
-    })
-  })
+      await nextTick()
+      scheduleRedraw()
+    },
+    { immediate: true },
+  )
 
   onBeforeUnmount(() => {
-    resizeObserver?.disconnect()
-    resizeObserver = undefined
+    if (redrawTimer !== undefined) {
+      window.clearTimeout(redrawTimer)
+      redrawTimer = undefined
+    }
   })
 
   return {
