@@ -1,5 +1,5 @@
 <script setup lang="ts">
-export type AppIconName = 'dark-mode' | 'sun-one' | 'moon' | 'setting' | 'login' | 'view-grid-card' | 'view-list'
+export type AppIconName = 'dark-mode' | 'sun-one' | 'moon' | 'setting' | 'login' | 'view-grid-card' | 'view-list' | 'download'
 
 defineProps<{
   name: AppIconName
@@ -39,6 +39,10 @@ defineProps<{
       <rect width="32" height="40" x="8" y="4" stroke="currentColor" stroke-linejoin="round" stroke-width="4" rx="2" />
       <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M21 14h12M21 24h12M21 34h12" />
       <path fill="currentColor" fill-rule="evenodd" d="M15 16a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 10a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 10a2 2 0 1 0 0-4a2 2 0 0 0 0 4" clip-rule="evenodd" />
+    </g>
+    <g v-else-if="name === 'download'" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+      <path d="M6 24.008V42h36V24" />
+      <path d="m33 23l-9 9l-9-9m8.992-17v26" />
     </g>
   </svg>
 </template>

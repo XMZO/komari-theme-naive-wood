@@ -606,6 +606,14 @@ const useAppStore = defineStore('app', () => {
     return 0
   })
 
+  const showSaveBackgroundButton = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.showSaveBackgroundButton === 'boolean') {
+      return settings.showSaveBackgroundButton
+    }
+    return false
+  })
+
   const cardMaterial = computed<CardMaterial>(() => {
     const settings = publicSettings.value?.theme_settings
     const validMaterials: CardMaterial[] = ['auto', 'solid', 'translucent', 'acrylic', 'liquid-glass']
@@ -791,6 +799,7 @@ const useAppStore = defineStore('app', () => {
     currentBackgroundUrl,
     backgroundBlur,
     backgroundOverlay,
+    showSaveBackgroundButton,
     cardMaterial,
     resolvedCardMaterial,
     cardMaterialActive,
