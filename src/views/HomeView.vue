@@ -182,10 +182,10 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         </LiquidGlassSurface>
         <NRadioGroup v-model:value="appStore.nodeViewMode" class="view-selector">
           <NRadioButton value="card" class="view-selector-item">
-            <div class="i-icon-park-outline-view-grid-card" />
+            <div class="view-selector-icon i-icon-park-outline-view-grid-card" />
           </NRadioButton>
           <NRadioButton value="list" class="view-selector-item">
-            <div class="i-icon-park-outline-view-list" />
+            <div class="view-selector-icon i-icon-park-outline-view-list" />
           </NRadioButton>
         </NRadioGroup>
       </div>
@@ -246,5 +246,24 @@ html.dark .search-glass--enabled :deep(.n-input) {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.view-selector-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: rgba(15, 23, 42, 0.88) !important;
+  background-color: currentcolor !important;
+}
+
+.view-selector :deep(.n-radio-button.n-radio-button--checked) .view-selector-icon {
+  color: #fff !important;
+}
+
+html.dark .view-selector-icon {
+  color: rgba(248, 250, 252, 0.94) !important;
+}
+
+html.dark .view-selector :deep(.n-radio-button.n-radio-button--checked) .view-selector-icon {
+  color: #0f172a !important;
 }
 </style>

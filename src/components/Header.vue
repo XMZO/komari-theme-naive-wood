@@ -106,7 +106,7 @@ function handleButtonClick(action: string) {
                 text
                 @click="handleButtonClick(button.action)"
               >
-                <div :class="button.icon" />
+                <div class="header-action-icon" :class="button.icon" />
               </NButton>
             </template>
             <template #default>
@@ -151,9 +151,11 @@ html.dark .header-glass--enabled {
   color: inherit !important;
 }
 
-.header-action-button :deep(.n-button__content > div) {
+.header-action-icon {
   width: 1.125rem;
   height: 1.125rem;
+  color: inherit !important;
+  background-color: currentcolor !important;
 }
 
 html.dark .header-action-button {
