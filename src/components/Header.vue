@@ -100,7 +100,12 @@ function handleButtonClick(action: string) {
         <NFlex class="flex gap-4">
           <NPopover v-for="button in actionButtons" :key="button.action" :disabled="button.disabled">
             <template #trigger>
-              <NButton :disabled="button.disabled" class="p-2 h-8 w-8" text @click="handleButtonClick(button.action)">
+              <NButton
+                :disabled="button.disabled"
+                class="header-action-button p-2 h-8 w-8"
+                text
+                @click="handleButtonClick(button.action)"
+              >
                 <div :class="button.icon" />
               </NButton>
             </template>
@@ -126,5 +131,40 @@ function handleButtonClick(action: string) {
 
 html.dark .header-glass--enabled {
   background-color: transparent !important;
+}
+
+.header-action-button {
+  color: rgba(15, 23, 42, 0.92) !important;
+  background-color: rgba(255, 255, 255, 0.76) !important;
+  border: 1px solid rgba(255, 255, 255, 0.58) !important;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.14);
+  backdrop-filter: blur(8px) saturate(150%);
+  -webkit-backdrop-filter: blur(8px) saturate(150%);
+}
+
+.header-action-button:hover {
+  color: rgba(15, 23, 42, 1) !important;
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.header-action-button :deep(.n-button__content) {
+  color: inherit !important;
+}
+
+.header-action-button :deep(.n-button__content > div) {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+html.dark .header-action-button {
+  color: rgba(248, 250, 252, 0.96) !important;
+  background-color: rgba(15, 23, 42, 0.74) !important;
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+}
+
+html.dark .header-action-button:hover {
+  color: #fff !important;
+  background-color: rgba(30, 41, 59, 0.88) !important;
 }
 </style>
