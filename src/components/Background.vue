@@ -11,16 +11,6 @@ const isLoaded = ref(false)
 const hasError = ref(false)
 const isSaving = ref(false)
 
-const displayImageUrl = ref('')
-const loadedImageBlob = ref<Blob | null>(null)
-const loadedImageObjectUrl = ref('')
-const loadedImageSourceUrl = ref('')
-const imageRef = ref<HTMLImageElement | null>(null)
-const videoRef = ref<HTMLVideoElement | null>(null)
-
-let imageRequestId = 0
-let imageFetchController: AbortController | null = null
-
 // 计算背景样式
 const backgroundStyle = computed(() => {
   const blur = appStore.backgroundBlur
@@ -56,20 +46,8 @@ const showLoadedBackground = computed(() => {
   return showBackground.value && currentUrl.value && isLoaded.value && !hasError.value
 })
 
-const showMediaBackground = computed(() => {
-  if (!showBackground.value || !currentUrl.value || hasError.value) {
-    return false
-  }
-
-  if (backgroundType.value === 'image') {
-    return Boolean(displayImageUrl.value)
-  }
-
-  return true
-})
-
 const showSaveButton = computed(() => {
-  return appStore.showSaveBackgroundButton && showLoadedBackground.value && Boolean(currentUrl.value)
+  return appStore.showSaveBackgroundButton && showBackground.value && Boolean(currentUrl.value)
 })
 
 // 是否显示默认背景（未启用自定义背景、未配置 URL、或加载失败时）
@@ -93,96 +71,36 @@ const showLoadingBackground = computed(() => {
   return showBackground.value && currentUrl.value && !isLoaded.value && !hasError.value
 })
 
-function abortImageFetch() {
-  if (imageFetchController) {
-    imageFetchController.abort()
-    imageFetchController = null
-  }
-}
+// 图片加载处理
+let imageLoader: HTMLImageElement | null = null
 
-function revokeLoadedImageObjectUrl() {
-  if (loadedImageObjectUrl.value) {
-    URL.revokeObjectURL(loadedImageObjectUrl.value)
-    loadedImageObjectUrl.value = ''
-  }
-}
-
-function resetImageState() {
-  abortImageFetch()
-  revokeLoadedImageObjectUrl()
-  displayImageUrl.value = ''
-  loadedImageBlob.value = null
-  loadedImageSourceUrl.value = ''
-}
-
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-// 图片优先走 fetch，这样随机跳转背景在允许跨域时能保存当前这一张。
-async function loadImage(url: string) {
-  const requestId = ++imageRequestId
-  resetImageState()
+function loadImage(url: string) {
+  // 重置状态
   isLoaded.value = false
   hasError.value = false
 
-  const controller = new AbortController()
-  imageFetchController = controller
-
-  try {
-    const response = await fetch(url, {
-      credentials: 'same-origin',
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to load background image: ${response.status}`)
-    }
-
-    const blob = await response.blob()
-    if (!blob.size) {
-      throw new Error('Background image response is empty')
-    }
-
-    const objectUrl = URL.createObjectURL(blob)
-    if (requestId !== imageRequestId) {
-      URL.revokeObjectURL(objectUrl)
-      return
-    }
-
-    loadedImageBlob.value = blob
-    loadedImageObjectUrl.value = objectUrl
-    loadedImageSourceUrl.value = response.url || url
-    displayImageUrl.value = objectUrl
+  // 清理之前的加载器
+  if (imageLoader) {
+    imageLoader.onload = null
+    imageLoader.onerror = null
+    imageLoader = null
   }
-  catch (error) {
-    if (requestId !== imageRequestId || isAbortError(error)) {
-      return
-    }
 
-    // 跨域不允许 fetch 时，降级为浏览器原生图片加载。
-    loadedImageBlob.value = null
-    loadedImageSourceUrl.value = url
-    displayImageUrl.value = url
+  // 创建新的图片加载器
+  imageLoader = new Image()
+  imageLoader.onload = () => {
+    isLoaded.value = true
+    hasError.value = false
   }
-  finally {
-    if (requestId === imageRequestId && imageFetchController === controller) {
-      imageFetchController = null
-    }
+  imageLoader.onerror = () => {
+    isLoaded.value = false
+    hasError.value = true
   }
+  imageLoader.src = url
 }
 
-function handleImageLoaded() {
-  isLoaded.value = true
-  hasError.value = false
-}
-
-function handleImageError() {
-  isLoaded.value = false
-  hasError.value = true
-  loadedImageBlob.value = null
-  loadedImageSourceUrl.value = ''
-}
+// 视频加载处理
+const videoRef = ref<HTMLVideoElement | null>(null)
 
 function handleVideoLoaded() {
   isLoaded.value = true
@@ -275,13 +193,10 @@ async function saveCurrentBackground() {
 
   const mediaUrl = backgroundType.value === 'video'
     ? videoRef.value?.currentSrc || currentUrl.value
-    : imageRef.value?.currentSrc || loadedImageSourceUrl.value || currentUrl.value
+    : currentUrl.value
 
   try {
-    const result = backgroundType.value === 'image' && loadedImageBlob.value
-      ? { blob: loadedImageBlob.value, sourceUrl: loadedImageSourceUrl.value || mediaUrl }
-      : await fetchCurrentBackgroundBlob(mediaUrl)
-
+    const result = await fetchCurrentBackgroundBlob(mediaUrl)
     const objectUrl = URL.createObjectURL(result.blob)
     triggerDownload(objectUrl, getBackgroundFileName(result.sourceUrl, result.blob))
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
@@ -296,26 +211,37 @@ async function saveCurrentBackground() {
   }
 }
 
-// 监听背景状态变化
-watch([showBackground, currentUrl, backgroundType], ([visible, url, type]) => {
-  imageRequestId += 1
-  resetImageState()
-  isLoaded.value = false
-  hasError.value = false
-
-  if (!visible || !url) {
-    return
+// 监听 URL 变化
+watch(currentUrl, (url) => {
+  if (url && backgroundType.value === 'image') {
+    loadImage(url)
   }
-
-  if (type === 'image') {
-    void loadImage(url)
+  else if (url && backgroundType.value === 'video') {
+    // 视频通过事件处理
+    isLoaded.value = false
+    hasError.value = false
+  }
+  else {
+    // 没有 URL 时重置状态
+    isLoaded.value = false
+    hasError.value = false
   }
 }, { immediate: true })
 
+// 监听背景类型变化
+watch(backgroundType, (type) => {
+  if (type === 'image' && currentUrl.value) {
+    loadImage(currentUrl.value)
+  }
+})
+
 // 组件卸载时清理
 onUnmounted(() => {
-  imageRequestId += 1
-  resetImageState()
+  if (imageLoader) {
+    imageLoader.onload = null
+    imageLoader.onerror = null
+    imageLoader = null
+  }
 })
 </script>
 
@@ -334,23 +260,13 @@ onUnmounted(() => {
 
       <!-- 自定义背景媒体层 -->
       <Transition name="fade">
-        <div
-          v-if="showMediaBackground"
-          class="background-media"
-          :class="{ 'background-media--loaded': isLoaded }"
-          :style="backgroundStyle"
-        >
+        <div v-if="showLoadedBackground" class="background-media" :style="backgroundStyle">
           <!-- 图片背景 -->
-          <img
+          <div
             v-if="backgroundType === 'image'"
-            ref="imageRef"
-            alt=""
             class="background-image"
-            draggable="false"
-            :src="displayImageUrl"
-            @error="handleImageError"
-            @load="handleImageLoaded"
-          >
+            :style="{ backgroundImage: `url(${currentUrl})` }"
+          />
           <!-- 视频背景 -->
           <video
             v-else-if="backgroundType === 'video'"
@@ -361,8 +277,8 @@ onUnmounted(() => {
             loop
             muted
             playsinline
-            @error="handleVideoError"
             @loadeddata="handleVideoLoaded"
+            @error="handleVideoError"
           />
         </div>
       </Transition>
@@ -454,21 +370,21 @@ html.dark .background-loading {
   left: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
   transform: scale(1.1); // 防止模糊边缘露出白边
-  transition: opacity 0.8s ease;
 }
 
-.background-media--loaded {
-  opacity: 1;
+.background-image {
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
 }
 
-.background-image,
 .background-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center;
 }
 
 .background-overlay {
@@ -484,7 +400,7 @@ html.dark .background-loading {
   position: fixed;
   right: max(16px, env(safe-area-inset-right));
   bottom: max(16px, env(safe-area-inset-bottom));
-  z-index: 30;
+  z-index: 100;
   color: rgba(17, 24, 39, 0.9) !important;
   background-color: rgba(255, 255, 255, 0.72) !important;
   border: 1px solid rgba(255, 255, 255, 0.58) !important;
