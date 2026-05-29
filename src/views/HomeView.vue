@@ -3,6 +3,7 @@ import { useDebounceFn } from '@vueuse/core'
 import { NAlert, NDivider, NEmpty, NInput, NRadioButton, NRadioGroup, NTabPane, NTabs } from 'naive-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import AppIcon from '@/components/AppIcon.vue'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { useAppStore } from '@/stores/app'
@@ -182,10 +183,10 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         </LiquidGlassSurface>
         <NRadioGroup v-model:value="appStore.nodeViewMode" class="view-selector">
           <NRadioButton value="card" class="view-selector-item">
-            <div class="view-selector-icon i-icon-park-outline-view-grid-card" />
+            <AppIcon name="view-grid-card" class="view-selector-icon" />
           </NRadioButton>
           <NRadioButton value="list" class="view-selector-item">
-            <div class="view-selector-icon i-icon-park-outline-view-list" />
+            <AppIcon name="view-list" class="view-selector-icon" />
           </NRadioButton>
         </NRadioGroup>
       </div>
@@ -252,7 +253,6 @@ html.dark .search-glass--enabled :deep(.n-input) {
   width: 1.125rem;
   height: 1.125rem;
   color: rgba(15, 23, 42, 0.88) !important;
-  background-color: currentcolor !important;
 }
 
 .view-selector :deep(.n-radio-button.n-radio-button--checked) .view-selector-icon {

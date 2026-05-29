@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { AppIconName } from '@/components/AppIcon.vue'
 import { NAvatar, NButton, NFlex, NH3, NPopover } from 'naive-ui'
 import { computed, h, inject, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import AppIcon from '@/components/AppIcon.vue'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import LoginDialog from './LoginDialog.vue'
@@ -26,10 +28,15 @@ const containerStyle = computed(() => {
 })
 
 const actionButtons = computed(() => {
-  const buttons = [
+  const buttons: {
+    title: string
+    icon: AppIconName
+    action: 'toggleTheme' | 'jumpToSetting' | 'openLoginDialog'
+    disabled: boolean
+  }[] = [
     {
       title: appStore.themeMode === 'auto' ? '自动主题' : appStore.themeMode === 'light' ? '浅色主题' : '深色主题',
-      icon: appStore.themeMode === 'auto' ? 'i-icon-park-outline-dark-mode' : appStore.themeMode === 'light' ? 'i-icon-park-outline-sun-one' : 'i-icon-park-outline-moon',
+      icon: appStore.themeMode === 'auto' ? 'dark-mode' : appStore.themeMode === 'light' ? 'sun-one' : 'moon',
       action: 'toggleTheme',
       disabled: false,
     },
@@ -39,7 +46,7 @@ const actionButtons = computed(() => {
   if (appStore.isLoggedIn) {
     buttons.push({
       title: '后台管理',
-      icon: 'i-icon-park-outline-setting',
+      icon: 'setting',
       action: 'jumpToSetting',
       disabled: false,
     })
@@ -47,7 +54,7 @@ const actionButtons = computed(() => {
   else if (appStore.showLoginButton) {
     buttons.push({
       title: '登录',
-      icon: 'i-icon-park-outline-login',
+      icon: 'login',
       action: 'openLoginDialog',
       disabled: false,
     })
@@ -106,7 +113,7 @@ function handleButtonClick(action: string) {
                 text
                 @click="handleButtonClick(button.action)"
               >
-                <div class="header-action-icon" :class="button.icon" />
+                <AppIcon class="header-action-icon" :name="button.icon" />
               </NButton>
             </template>
             <template #default>
@@ -155,7 +162,6 @@ html.dark .header-glass--enabled {
   width: 1.125rem;
   height: 1.125rem;
   color: inherit !important;
-  background-color: currentcolor !important;
 }
 
 html.dark .header-action-button {
