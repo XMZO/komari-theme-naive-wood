@@ -3,6 +3,7 @@ import { NButton } from 'naive-ui'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
+import { createBackgroundProxyKey, ensureBackgroundProxyReady, getBackgroundProxyUrl } from '@/utils/backgroundProxy'
 
 const appStore = useAppStore()
 
@@ -11,8 +12,9 @@ const isLoaded = ref(false)
 const hasError = ref(false)
 const isSaving = ref(false)
 const imageDisplayUrl = ref('')
-const imageBlob = ref<Blob | null>(null)
-const imageSourceUrl = ref('')
+const imageDownloadUrl = ref('')
+const imageProxyKey = ref('')
+const imageProxyReady = ref(false)
 
 // 计算背景样式
 const backgroundStyle = computed(() => {
@@ -86,11 +88,9 @@ const showLoadingBackground = computed(() => {
   return showBackground.value && currentUrl.value && !isLoaded.value && !hasError.value
 })
 
-// 图片加载处理。能跨域读取时，实际显示 Blob URL，保存也保存同一个 Blob。
+// 图片加载处理。优先走同源 Service Worker 缓存桥，显示和下载复用同一次随机结果。
 let imageRequestId = 0
-let imageObjectUrl = ''
 let imageFallbackTimer: number | null = null
-let imageFetchController: AbortController | null = null
 
 function clearImageFallbackTimer() {
   if (imageFallbackTimer !== null) {
@@ -99,31 +99,12 @@ function clearImageFallbackTimer() {
   }
 }
 
-function abortImageFetch() {
-  if (imageFetchController) {
-    imageFetchController.abort()
-    imageFetchController = null
-  }
-}
-
-function revokeImageObjectUrl() {
-  if (imageObjectUrl) {
-    URL.revokeObjectURL(imageObjectUrl)
-    imageObjectUrl = ''
-  }
-}
-
 function resetImageState() {
   clearImageFallbackTimer()
-  abortImageFetch()
-  revokeImageObjectUrl()
   imageDisplayUrl.value = ''
-  imageBlob.value = null
-  imageSourceUrl.value = ''
-}
-
-function isAbortError(error: unknown) {
-  return error instanceof Error && error.name === 'AbortError'
+  imageDownloadUrl.value = ''
+  imageProxyKey.value = ''
+  imageProxyReady.value = false
 }
 
 async function loadImage(url: string) {
@@ -140,51 +121,28 @@ async function loadImage(url: string) {
     imageDisplayUrl.value = url
   }, 1800)
 
-  const controller = new AbortController()
-  imageFetchController = controller
-
-  try {
-    const response = await fetch(url, {
-      credentials: 'same-origin',
-      signal: controller.signal,
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to load background image: ${response.status}`)
-    }
-
-    const blob = await response.blob()
-    if (!blob.size) {
-      throw new Error('Background image response is empty')
-    }
-
-    const objectUrl = URL.createObjectURL(blob)
-    if (requestId !== imageRequestId) {
-      URL.revokeObjectURL(objectUrl)
-      return
-    }
-
-    clearImageFallbackTimer()
-    revokeImageObjectUrl()
-    imageObjectUrl = objectUrl
-    imageBlob.value = blob
-    imageSourceUrl.value = response.url || url
-    imageDisplayUrl.value = objectUrl
+  const proxyReady = await ensureBackgroundProxyReady()
+  if (requestId !== imageRequestId) {
+    return
   }
-  catch (error) {
-    if (requestId !== imageRequestId || isAbortError(error)) {
-      return
-    }
 
+  if (!proxyReady) {
     if (!imageDisplayUrl.value) {
       imageDisplayUrl.value = url
     }
+    return
   }
-  finally {
-    if (requestId === imageRequestId && imageFetchController === controller) {
-      imageFetchController = null
-    }
-  }
+
+  const proxyKey = createBackgroundProxyKey()
+  const filename = getBackgroundFileName(url)
+  const proxyImageUrl = getBackgroundProxyUrl('image', url, proxyKey)
+  const proxyDownloadUrl = getBackgroundProxyUrl('download', url, proxyKey, filename)
+
+  clearImageFallbackTimer()
+  imageProxyKey.value = proxyKey
+  imageProxyReady.value = true
+  imageDownloadUrl.value = proxyDownloadUrl
+  imageDisplayUrl.value = proxyImageUrl
 }
 
 function handleImageLoaded() {
@@ -193,9 +151,10 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
-  if (imageBlob.value && currentUrl.value && imageDisplayUrl.value !== currentUrl.value) {
-    imageBlob.value = null
-    imageSourceUrl.value = ''
+  if (imageProxyReady.value && currentUrl.value && imageDisplayUrl.value !== currentUrl.value) {
+    imageDownloadUrl.value = ''
+    imageProxyKey.value = ''
+    imageProxyReady.value = false
     imageDisplayUrl.value = currentUrl.value
     isLoaded.value = false
     hasError.value = false
@@ -296,22 +255,22 @@ async function saveCurrentBackground() {
     return
   }
 
-  if (backgroundType.value === 'image' && !imageBlob.value) {
-    window.$message?.error('当前图片源无法跨域读取，不能一键保存当前这张背景')
+  if (backgroundType.value === 'image' && !imageDownloadUrl.value) {
+    window.$message?.error('当前浏览器环境不支持一键保存这个跨域随机背景')
     return
   }
 
   isSaving.value = true
 
-  const mediaUrl = backgroundType.value === 'video'
-    ? videoRef.value?.currentSrc || currentUrl.value
-    : imageSourceUrl.value || currentUrl.value
-
   try {
-    const result = backgroundType.value === 'image' && imageBlob.value
-      ? { blob: imageBlob.value, sourceUrl: mediaUrl }
-      : await fetchCurrentBackgroundBlob(mediaUrl)
+    if (backgroundType.value === 'image') {
+      triggerDownload(imageDownloadUrl.value, getBackgroundFileName(currentUrl.value))
+      window.$message?.success('已开始保存当前背景')
+      return
+    }
 
+    const mediaUrl = videoRef.value?.currentSrc || currentUrl.value
+    const result = await fetchCurrentBackgroundBlob(mediaUrl)
     const objectUrl = URL.createObjectURL(result.blob)
     triggerDownload(objectUrl, getBackgroundFileName(result.sourceUrl, result.blob))
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
