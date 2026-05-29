@@ -205,27 +205,6 @@ const rowHeightStyle = computed(() => {
   return {}
 })
 
-// 是否启用背景模糊
-const hasBackgroundBlur = computed(() => {
-  return appStore.backgroundEnabled && appStore.cardBlurRadius > 0
-})
-
-// 计算列表模糊半径类
-const listBlurClass = computed(() => {
-  if (!hasBackgroundBlur.value)
-    return ''
-  const radius = appStore.cardBlurRadius
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
-})
-
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 
 // 计算国旗图标路径
@@ -378,8 +357,8 @@ const columnTitles: Record<string, string> = {
         class="min-w-fit w-full"
         :class="[
           { 'light-list-contrast': appStore.lightCardContrast && !appStore.isDark },
-          { 'glass-list-enabled': hasBackgroundBlur },
-          listBlurClass,
+          appStore.cardMaterialClass,
+          appStore.cardMaterialBlurClass,
         ]"
       >
         <template #header>
@@ -828,23 +807,6 @@ html.dark .node-list-glass--enabled :deep(.n-list-item) {
 
   :deep(.n-list-item) {
     border-color: rgba(0, 0, 0, 0.08);
-  }
-}
-
-/* 毛玻璃列表样式 */
-.glass-list-enabled {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-
-  :deep(.n-list-item) {
-    background-color: rgba(255, 255, 255, 0.6);
-  }
-}
-
-html.dark .glass-list-enabled {
-  background-color: rgba(24, 24, 28, 0.85) !important;
-
-  :deep(.n-list-item) {
-    background-color: rgba(24, 24, 28, 0.7);
   }
 }
 </style>

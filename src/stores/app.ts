@@ -9,6 +9,8 @@ type Lang = 'zh-CN' | 'en-US'
 type NodeViewMode = 'card' | 'list'
 type RpcTransportMode = 'websocket' | 'http'
 type AlertType = 'default' | 'info' | 'success' | 'warning' | 'error'
+type CardMaterial = 'auto' | 'solid' | 'translucent' | 'acrylic'
+type ResolvedCardMaterial = Exclude<CardMaterial, 'auto'>
 type LiquidGlassScope = 'node-card' | 'cards' | 'interface' | 'all'
 type LiquidGlassTint = 'auto' | 'transparent' | 'white' | 'black'
 type ResolvedLiquidGlassTint = Exclude<LiquidGlassTint, 'auto'>
@@ -46,6 +48,20 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
     return fallback
   }
   return Math.min(max, Math.max(min, value))
+}
+
+function getBlurClass(radius: number): string {
+  if (radius <= 0)
+    return ''
+  if (radius <= 8)
+    return 'glass-8'
+  if (radius <= 12)
+    return 'glass-12'
+  if (radius <= 16)
+    return 'glass-16'
+  if (radius <= 20)
+    return 'glass-20'
+  return `glass-${radius}`
 }
 
 const useAppStore = defineStore('app', () => {
@@ -591,14 +607,46 @@ const useAppStore = defineStore('app', () => {
     return 0
   })
 
-  // 计算属性：卡片模糊半径（当启用自定义背景时，使用更高的模糊半径）
+  const cardMaterial = computed<CardMaterial>(() => {
+    const settings = publicSettings.value?.theme_settings
+    const validMaterials: CardMaterial[] = ['auto', 'solid', 'translucent', 'acrylic']
+
+    if (settings && typeof settings.cardMaterial === 'string') {
+      const material = settings.cardMaterial as CardMaterial
+      if (validMaterials.includes(material)) {
+        return material
+      }
+    }
+    return 'auto'
+  })
+
+  const resolvedCardMaterial = computed<ResolvedCardMaterial>(() => {
+    if (cardMaterial.value !== 'auto') {
+      return cardMaterial.value
+    }
+    return backgroundEnabled.value ? 'translucent' : 'solid'
+  })
+
+  const cardMaterialActive = computed<boolean>(() => {
+    return cardMaterial.value !== 'auto' || backgroundEnabled.value
+  })
+
+  const cardMaterialClass = computed<string>(() => {
+    if (!cardMaterialActive.value) {
+      return ''
+    }
+    return `card-material-${resolvedCardMaterial.value}`
+  })
+
+  // 仅亚克力材质给卡片加高斯模糊；清晰半透明材质不模糊背景。
   const cardBlurRadius = computed<number>(() => {
-    if (backgroundEnabled.value && backgroundBlur.value > 0) {
-      // 卡片使用背景模糊半径 + 8px 的额外模糊
-      return backgroundBlur.value + 8
+    if (resolvedCardMaterial.value === 'acrylic') {
+      return backgroundBlur.value > 0 ? Math.min(24, backgroundBlur.value + 8) : 12
     }
     return 0
   })
+
+  const cardMaterialBlurClass = computed<string>(() => getBlurClass(cardBlurRadius.value))
 
   const liquidGlassEnabled = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -766,7 +814,12 @@ const useAppStore = defineStore('app', () => {
     currentBackgroundUrl,
     backgroundBlur,
     backgroundOverlay,
+    cardMaterial,
+    resolvedCardMaterial,
+    cardMaterialActive,
+    cardMaterialClass,
     cardBlurRadius,
+    cardMaterialBlurClass,
     liquidGlassEnabled,
     liquidGlassScope,
     liquidGlassTint,

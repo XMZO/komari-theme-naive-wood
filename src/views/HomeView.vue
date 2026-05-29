@@ -149,27 +149,6 @@ function handleNodeClick(node: typeof nodesStore.nodes[number]) {
   router.push({ name: 'instance-detail', params: { id: node.uuid } })
 }
 
-// 是否启用背景模糊
-const hasBackgroundBlur = computed(() => {
-  return appStore.backgroundEnabled && appStore.cardBlurRadius > 0
-})
-
-// 计算模糊半径类
-const blurClass = computed(() => {
-  if (!hasBackgroundBlur.value)
-    return ''
-  const radius = appStore.cardBlurRadius
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
-})
-
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 </script>
 
@@ -194,7 +173,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
           <NInput
             v-model:value="searchText"
             placeholder="搜索节点名称、地区、系统"
-            :class="[{ 'glass-input-enabled': hasBackgroundBlur }, blurClass]"
+            :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]"
           >
             <template #prefix>
               <div class="i-icon-park-outline-search" />
@@ -267,15 +246,5 @@ html.dark .search-glass--enabled :deep(.n-input) {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-/* 毛玻璃搜索框样式 */
-.glass-input-enabled {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-  border-radius: var(--n-border-radius);
-}
-
-html.dark .glass-input-enabled {
-  background-color: rgba(24, 24, 28, 0.85) !important;
 }
 </style>

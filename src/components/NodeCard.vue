@@ -137,27 +137,6 @@ const shouldShowTagsInSeparateRow = computed(() => {
   return appStore.tagsInSeparateRow && mergedTags.value.length > 0
 })
 
-// 是否启用背景模糊
-const hasBackgroundBlur = computed(() => {
-  return appStore.backgroundEnabled && appStore.cardBlurRadius > 0
-})
-
-// 计算卡片模糊半径类
-const cardBlurClass = computed(() => {
-  if (!hasBackgroundBlur.value)
-    return ''
-  const radius = appStore.cardBlurRadius
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
-})
-
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('node-card'))
 </script>
 
@@ -172,8 +151,8 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('node-c
       class="node-card w-full cursor-pointer transition-all duration-200" :class="[
         props.node.online ? 'hover:border-primary' : 'node-card--offline',
         { 'light-card-contrast': appStore.lightCardContrast && !appStore.isDark },
-        { 'glass-card-enabled': hasBackgroundBlur },
-        cardBlurClass,
+        appStore.cardMaterialClass,
+        appStore.cardMaterialBlurClass,
       ]"
       @click="emit('click')"
     >
@@ -535,24 +514,6 @@ html.dark .node-card-glass--enabled :deep(.n-progress-graph-line-rail) {
   &:hover {
     box-shadow: 0 4px 12px 0 rgba(0, 0, 0, 0.12);
     border-color: var(--primary-color) !important;
-  }
-}
-
-/* 毛玻璃卡片样式 */
-.glass-card-enabled {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-  border-radius: var(--n-border-radius);
-
-  &:hover {
-    background-color: rgba(245, 245, 247, 0.74) !important;
-  }
-}
-
-html.dark .glass-card-enabled {
-  background-color: rgba(24, 24, 28, 0.85) !important;
-
-  &:hover {
-    background-color: rgba(31, 31, 36, 0.9) !important;
   }
 }
 

@@ -49,27 +49,6 @@ const formattedTrafficDown = computed(() => formatBytesSplit(totalTraffic.value.
 const formattedSpeedUp = computed(() => formatBytesPerSecondSplit(totalSpeed.value.up, appStore.byteDecimals))
 const formattedSpeedDown = computed(() => formatBytesPerSecondSplit(totalSpeed.value.down, appStore.byteDecimals))
 
-// 是否启用背景模糊
-const hasBackgroundBlur = computed(() => {
-  return appStore.backgroundEnabled && appStore.cardBlurRadius > 0
-})
-
-// 计算卡片模糊半径类
-const cardBlurClass = computed(() => {
-  if (!hasBackgroundBlur.value)
-    return ''
-  const radius = appStore.cardBlurRadius
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
-})
-
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>
 
@@ -77,7 +56,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
   <div class="general-info p-4 flex flex-col gap-2 sm:p-4 sm:gap-4 lg:grid lg:grid-cols-5" :class="{ 'light-general-contrast': appStore.lightCardContrast && !appStore.isDark }">
     <!-- 当前时间 -->
     <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
-      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+      <NCard hoverable class="sm:min-h-32" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" content-class="h-full">
         <!-- 移动端单行显示 -->
         <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
           <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
@@ -105,7 +84,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
     <!-- 在线节点 -->
     <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
-      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+      <NCard hoverable class="sm:min-h-32" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" content-class="h-full">
         <!-- 移动端单行显示 -->
         <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
           <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
@@ -147,7 +126,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
     <!-- 点亮区域 -->
     <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
-      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+      <NCard hoverable class="sm:min-h-32" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" content-class="h-full">
         <!-- 移动端单行显示 -->
         <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
           <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
@@ -175,7 +154,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
     <!-- 流量总览 -->
     <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
-      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+      <NCard hoverable class="sm:min-h-32" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" content-class="h-full">
         <!-- 移动端单行显示 -->
         <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
           <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
@@ -219,7 +198,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
     <!-- 网络速率 -->
     <LiquidGlassSurface scope="cards" class="general-card-glass" :class="{ 'general-card-glass--enabled': hasLiquidGlass }">
-      <NCard hoverable class="sm:min-h-32" :class="[{ 'glass-card-enabled': hasBackgroundBlur }, cardBlurClass]" content-class="h-full">
+      <NCard hoverable class="sm:min-h-32" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" content-class="h-full">
         <!-- 移动端单行显示 -->
         <div class="flex gap-2 items-center justify-between sm:hidden" :style="{ fontFamily: appStore.numberFontFamily }">
           <NText :depth="3" class="text-xs flex shrink-0 gap-1 items-center">
@@ -288,22 +267,5 @@ html.dark .general-card-glass--enabled :deep(.n-card) {
   background-color: rgba(250, 250, 252, 1) !important;
   box-shadow: 0 2px 8px 0 rgba(0, 0, 0, 0.08);
   border-color: rgba(0, 0, 0, 0.12);
-}
-
-/* 毛玻璃卡片样式 */
-.glass-card-enabled {
-  background-color: rgba(255, 255, 255, 0.7) !important;
-
-  &:hover {
-    background-color: rgba(245, 245, 247, 0.74) !important;
-  }
-}
-
-html.dark .glass-card-enabled {
-  background-color: rgba(24, 24, 28, 0.85) !important;
-
-  &:hover {
-    background-color: rgba(31, 31, 36, 0.9) !important;
-  }
 }
 </style>

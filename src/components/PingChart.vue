@@ -513,25 +513,6 @@ onMounted(() => {
   fetchRecords()
 })
 
-// 是否启用模糊背景
-const hasBackgroundBlur = computed(() => appStore.backgroundEnabled && appStore.backgroundBlur > 0)
-
-// 计算模糊半径类
-const blurClass = computed(() => {
-  if (!hasBackgroundBlur.value)
-    return ''
-  const radius = appStore.cardBlurRadius
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
-})
-
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>
 
@@ -575,8 +556,8 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
                 selectedTaskIds.includes(task.id)
                   ? ''
                   : 'opacity-50',
-                hasBackgroundBlur ? 'glass-task-enabled' : 'task-card-default',
-                blurClass,
+                appStore.cardMaterialActive ? appStore.cardMaterialClass : 'task-card-default',
+                appStore.cardMaterialBlurClass,
               ]"
               :onmouseover="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = task.color)"
               :onmouseout="(e: MouseEvent) => ((e.currentTarget as HTMLElement).style.borderColor = 'transparent')"
@@ -707,15 +688,5 @@ html.dark .task-card-glass--enabled > :deep(.liquid-glass__content) > div {
 html.dark .task-card-default {
   background-color: rgba(30, 30, 35, 0.95);
   border-color: rgba(255, 255, 255, 0.08);
-}
-
-/* 毛玻璃任务卡片样式 */
-.glass-task-enabled {
-  background-color: rgba(255, 255, 255, 0.7);
-  border-radius: var(--n-border-radius);
-}
-
-html.dark .glass-task-enabled {
-  background-color: rgba(24, 24, 28, 0.85);
 }
 </style>
