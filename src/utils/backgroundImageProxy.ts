@@ -13,9 +13,10 @@ export async function fetchBackgroundImageBlob(sourceUrl: string) {
     })
   }
 
-  const proxyUrl = getReadableBackgroundImageUrl(requestUrl)
+  const imageUrl = await resolveClientSelectedImageUrl(requestUrl).catch(() => requestUrl)
+  const proxyUrl = getReadableBackgroundImageUrl(imageUrl)
   try {
-    return await fetchImageBlob(proxyUrl, requestUrl, {
+    return await fetchImageBlob(proxyUrl, imageUrl, {
       cache: 'no-store',
       credentials: 'omit',
       mode: 'cors',
@@ -47,6 +48,38 @@ function getReadableBackgroundImageUrl(sourceUrl: string) {
   return `${READABLE_IMAGE_PROXY_ORIGIN}/${encodeURIComponent(sourceUrl)}`
 }
 
+async function resolveClientSelectedImageUrl(sourceUrl: string) {
+  if (!shouldUseClientJsonResolver(sourceUrl)) {
+    return sourceUrl
+  }
+
+  const jsonUrl = new URL(sourceUrl)
+  jsonUrl.searchParams.set('json', '')
+
+  const response = await fetch(jsonUrl.toString(), {
+    cache: 'no-store',
+    credentials: 'omit',
+    mode: 'cors',
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to resolve background image URL: ${response.status}`)
+  }
+
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? ''
+  if (contentType.startsWith('image/')) {
+    throw new Error('JSON resolver returned an image response')
+  }
+
+  const imageUrl = extractImageUrl(await response.text())
+  const resolvedUrl = new URL(imageUrl, response.url || jsonUrl.toString())
+  if (resolvedUrl.protocol !== 'http:' && resolvedUrl.protocol !== 'https:') {
+    throw new Error(`Invalid resolved background URL: ${resolvedUrl.protocol}`)
+  }
+
+  return resolvedUrl.toString()
+}
+
 async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: RequestInit) {
   const response = await fetch(fetchUrl, init)
   if (!response.ok) {
@@ -64,6 +97,57 @@ async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: Request
   }
 }
 
+function extractImageUrl(value: string) {
+  const trimmedValue = value.trim()
+  try {
+    const parsed = JSON.parse(trimmedValue) as unknown
+    const candidate = findImageUrlCandidate(parsed)
+    if (candidate) {
+      return candidate
+    }
+  }
+  catch {
+    // Some random image APIs return the URL as plain text.
+  }
+
+  if (/^https?:\/\//i.test(trimmedValue) || trimmedValue.startsWith('/')) {
+    return trimmedValue
+  }
+
+  throw new Error('No image URL found in resolver response')
+}
+
+function findImageUrlCandidate(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    return value
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = findImageUrlCandidate(item)
+      if (candidate) {
+        return candidate
+      }
+    }
+    return undefined
+  }
+
+  if (!value || typeof value !== 'object') {
+    return undefined
+  }
+
+  const record = value as Record<string, unknown>
+  const knownKeys = ['url', 'src', 'image', 'img', 'pic', 'picture', 'data']
+  for (const key of knownKeys) {
+    const candidate = findImageUrlCandidate(record[key])
+    if (candidate) {
+      return candidate
+    }
+  }
+
+  return undefined
+}
+
 export function cleanupLegacyBackgroundProxy() {
   void unregisterLegacyServiceWorker().catch(() => {})
   void cleanupLegacyCaches().catch(() => {})
@@ -73,6 +157,16 @@ function shouldUseReadableProxy(sourceUrl: string) {
   try {
     const url = new URL(sourceUrl)
     return (url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== window.location.origin
+  }
+  catch {
+    return false
+  }
+}
+
+function shouldUseClientJsonResolver(sourceUrl: string) {
+  try {
+    const url = new URL(sourceUrl)
+    return url.hostname === 't.alcy.cc'
   }
   catch {
     return false
