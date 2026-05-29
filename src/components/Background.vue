@@ -3,7 +3,7 @@ import { NButton } from 'naive-ui'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
-import { createBackgroundProxyKey, ensureBackgroundProxyReady, getBackgroundProxyUrl } from '@/utils/backgroundProxy'
+import { cleanupLegacyBackgroundProxy, fetchBackgroundImageBlob } from '@/utils/backgroundImageProxy'
 
 const appStore = useAppStore()
 
@@ -12,9 +12,9 @@ const isLoaded = ref(false)
 const hasError = ref(false)
 const isSaving = ref(false)
 const imageDisplayUrl = ref('')
-const imageDownloadUrl = ref('')
-const imageProxyKey = ref('')
-const imageProxyReady = ref(false)
+const imageBlob = ref<Blob | null>(null)
+const imageBlobSourceUrl = ref('')
+const imageBlobReady = ref(false)
 
 // 计算背景样式
 const backgroundStyle = computed(() => {
@@ -88,7 +88,9 @@ const showLoadingBackground = computed(() => {
   return showBackground.value && currentUrl.value && !isLoaded.value && !hasError.value
 })
 
-// 图片加载处理。优先走同源 Service Worker 缓存桥，显示和下载复用同一次随机结果。
+cleanupLegacyBackgroundProxy()
+
+// 图片加载处理。图片保存开启时先取成可读 Blob，显示和下载复用同一份字节。
 let imageRequestId = 0
 let imageFallbackTimer: number | null = null
 
@@ -101,10 +103,13 @@ function clearImageFallbackTimer() {
 
 function resetImageState() {
   clearImageFallbackTimer()
+  if (imageDisplayUrl.value.startsWith('blob:')) {
+    URL.revokeObjectURL(imageDisplayUrl.value)
+  }
   imageDisplayUrl.value = ''
-  imageDownloadUrl.value = ''
-  imageProxyKey.value = ''
-  imageProxyReady.value = false
+  imageBlob.value = null
+  imageBlobSourceUrl.value = ''
+  imageBlobReady.value = false
 }
 
 async function loadImage(url: string) {
@@ -112,6 +117,11 @@ async function loadImage(url: string) {
   resetImageState()
   isLoaded.value = false
   hasError.value = false
+
+  if (!appStore.showSaveBackgroundButton) {
+    imageDisplayUrl.value = url
+    return
+  }
 
   imageFallbackTimer = window.setTimeout(() => {
     if (requestId !== imageRequestId || imageDisplayUrl.value) {
@@ -121,28 +131,32 @@ async function loadImage(url: string) {
     imageDisplayUrl.value = url
   }, 1800)
 
-  const proxyReady = await ensureBackgroundProxyReady()
+  let result: Awaited<ReturnType<typeof fetchBackgroundImageBlob>>
+  try {
+    result = await fetchBackgroundImageBlob(url)
+  }
+  catch {
+    if (requestId !== imageRequestId) {
+      return
+    }
+    clearImageFallbackTimer()
+    if (!imageDisplayUrl.value) {
+      imageDisplayUrl.value = url
+    }
+    imageBlob.value = null
+    imageBlobSourceUrl.value = ''
+    return
+  }
+
   if (requestId !== imageRequestId) {
     return
   }
 
-  if (!proxyReady) {
-    if (!imageDisplayUrl.value) {
-      imageDisplayUrl.value = url
-    }
-    return
-  }
-
-  const proxyKey = createBackgroundProxyKey()
-  const filename = getBackgroundFileName(url)
-  const proxyImageUrl = getBackgroundProxyUrl('image', url, proxyKey)
-  const proxyDownloadUrl = getBackgroundProxyUrl('download', url, proxyKey, filename)
-
   clearImageFallbackTimer()
-  imageProxyKey.value = proxyKey
-  imageProxyReady.value = true
-  imageDownloadUrl.value = proxyDownloadUrl
-  imageDisplayUrl.value = proxyImageUrl
+  imageBlob.value = result.blob
+  imageBlobSourceUrl.value = result.sourceUrl
+  imageBlobReady.value = true
+  imageDisplayUrl.value = URL.createObjectURL(result.blob)
 }
 
 function handleImageLoaded() {
@@ -151,16 +165,6 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
-  if (imageProxyReady.value && currentUrl.value && imageDisplayUrl.value !== currentUrl.value) {
-    imageDownloadUrl.value = ''
-    imageProxyKey.value = ''
-    imageProxyReady.value = false
-    imageDisplayUrl.value = currentUrl.value
-    isLoaded.value = false
-    hasError.value = false
-    return
-  }
-
   isLoaded.value = false
   hasError.value = true
 }
@@ -255,16 +259,16 @@ async function saveCurrentBackground() {
     return
   }
 
-  if (backgroundType.value === 'image' && !imageDownloadUrl.value) {
-    window.$message?.error('当前浏览器环境不支持一键保存这个跨域随机背景')
-    return
-  }
-
   isSaving.value = true
 
   try {
     if (backgroundType.value === 'image') {
-      triggerDownload(imageDownloadUrl.value, getBackgroundFileName(currentUrl.value))
+      if (!imageBlob.value || !imageDisplayUrl.value.startsWith('blob:') || !imageBlobReady.value) {
+        window.$message?.warning('当前背景还没准备好，请稍等一下再保存')
+        return
+      }
+
+      triggerDownload(imageDisplayUrl.value, getBackgroundFileName(imageBlobSourceUrl.value || currentUrl.value, imageBlob.value))
       window.$message?.success('已开始保存当前背景')
       return
     }
@@ -304,6 +308,12 @@ watch(currentUrl, (url) => {
     hasError.value = false
   }
 }, { immediate: true })
+
+watch(() => appStore.showSaveBackgroundButton, () => {
+  if (currentUrl.value && backgroundType.value === 'image') {
+    void loadImage(currentUrl.value)
+  }
+})
 
 // 监听背景类型变化
 watch(backgroundType, (type) => {
