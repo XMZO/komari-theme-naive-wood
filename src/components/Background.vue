@@ -10,6 +10,9 @@ const appStore = useAppStore()
 const isLoaded = ref(false)
 const hasError = ref(false)
 const isSaving = ref(false)
+const imageDisplayUrl = ref('')
+const imageBlob = ref<Blob | null>(null)
+const imageSourceUrl = ref('')
 
 // 计算背景样式
 const backgroundStyle = computed(() => {
@@ -46,8 +49,20 @@ const showLoadedBackground = computed(() => {
   return showBackground.value && currentUrl.value && isLoaded.value && !hasError.value
 })
 
+const showMediaBackground = computed(() => {
+  if (!showBackground.value || !currentUrl.value || hasError.value) {
+    return false
+  }
+
+  if (backgroundType.value === 'image') {
+    return Boolean(imageDisplayUrl.value)
+  }
+
+  return true
+})
+
 const showSaveButton = computed(() => {
-  return appStore.showSaveBackgroundButton && showBackground.value && Boolean(currentUrl.value)
+  return appStore.showSaveBackgroundButton && showBackground.value && Boolean(currentUrl.value) && !hasError.value
 })
 
 // 是否显示默认背景（未启用自定义背景、未配置 URL、或加载失败时）
@@ -71,32 +86,124 @@ const showLoadingBackground = computed(() => {
   return showBackground.value && currentUrl.value && !isLoaded.value && !hasError.value
 })
 
-// 图片加载处理
-let imageLoader: HTMLImageElement | null = null
+// 图片加载处理。能跨域读取时，实际显示 Blob URL，保存也保存同一个 Blob。
+let imageRequestId = 0
+let imageObjectUrl = ''
+let imageFallbackTimer: number | null = null
+let imageFetchController: AbortController | null = null
 
-function loadImage(url: string) {
-  // 重置状态
+function clearImageFallbackTimer() {
+  if (imageFallbackTimer !== null) {
+    window.clearTimeout(imageFallbackTimer)
+    imageFallbackTimer = null
+  }
+}
+
+function abortImageFetch() {
+  if (imageFetchController) {
+    imageFetchController.abort()
+    imageFetchController = null
+  }
+}
+
+function revokeImageObjectUrl() {
+  if (imageObjectUrl) {
+    URL.revokeObjectURL(imageObjectUrl)
+    imageObjectUrl = ''
+  }
+}
+
+function resetImageState() {
+  clearImageFallbackTimer()
+  abortImageFetch()
+  revokeImageObjectUrl()
+  imageDisplayUrl.value = ''
+  imageBlob.value = null
+  imageSourceUrl.value = ''
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof Error && error.name === 'AbortError'
+}
+
+async function loadImage(url: string) {
+  const requestId = ++imageRequestId
+  resetImageState()
   isLoaded.value = false
   hasError.value = false
 
-  // 清理之前的加载器
-  if (imageLoader) {
-    imageLoader.onload = null
-    imageLoader.onerror = null
-    imageLoader = null
+  imageFallbackTimer = window.setTimeout(() => {
+    if (requestId !== imageRequestId || imageDisplayUrl.value) {
+      return
+    }
+
+    imageDisplayUrl.value = url
+  }, 1800)
+
+  const controller = new AbortController()
+  imageFetchController = controller
+
+  try {
+    const response = await fetch(url, {
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to load background image: ${response.status}`)
+    }
+
+    const blob = await response.blob()
+    if (!blob.size) {
+      throw new Error('Background image response is empty')
+    }
+
+    const objectUrl = URL.createObjectURL(blob)
+    if (requestId !== imageRequestId) {
+      URL.revokeObjectURL(objectUrl)
+      return
+    }
+
+    clearImageFallbackTimer()
+    revokeImageObjectUrl()
+    imageObjectUrl = objectUrl
+    imageBlob.value = blob
+    imageSourceUrl.value = response.url || url
+    imageDisplayUrl.value = objectUrl
+  }
+  catch (error) {
+    if (requestId !== imageRequestId || isAbortError(error)) {
+      return
+    }
+
+    if (!imageDisplayUrl.value) {
+      imageDisplayUrl.value = url
+    }
+  }
+  finally {
+    if (requestId === imageRequestId && imageFetchController === controller) {
+      imageFetchController = null
+    }
+  }
+}
+
+function handleImageLoaded() {
+  isLoaded.value = true
+  hasError.value = false
+}
+
+function handleImageError() {
+  if (imageBlob.value && currentUrl.value && imageDisplayUrl.value !== currentUrl.value) {
+    imageBlob.value = null
+    imageSourceUrl.value = ''
+    imageDisplayUrl.value = currentUrl.value
+    isLoaded.value = false
+    hasError.value = false
+    return
   }
 
-  // 创建新的图片加载器
-  imageLoader = new Image()
-  imageLoader.onload = () => {
-    isLoaded.value = true
-    hasError.value = false
-  }
-  imageLoader.onerror = () => {
-    isLoaded.value = false
-    hasError.value = true
-  }
-  imageLoader.src = url
+  isLoaded.value = false
+  hasError.value = true
 }
 
 // 视频加载处理
@@ -189,22 +296,29 @@ async function saveCurrentBackground() {
     return
   }
 
+  if (backgroundType.value === 'image' && !imageBlob.value) {
+    window.$message?.error('当前图片源无法跨域读取，不能一键保存当前这张背景')
+    return
+  }
+
   isSaving.value = true
 
   const mediaUrl = backgroundType.value === 'video'
     ? videoRef.value?.currentSrc || currentUrl.value
-    : currentUrl.value
+    : imageSourceUrl.value || currentUrl.value
 
   try {
-    const result = await fetchCurrentBackgroundBlob(mediaUrl)
+    const result = backgroundType.value === 'image' && imageBlob.value
+      ? { blob: imageBlob.value, sourceUrl: mediaUrl }
+      : await fetchCurrentBackgroundBlob(mediaUrl)
+
     const objectUrl = URL.createObjectURL(result.blob)
     triggerDownload(objectUrl, getBackgroundFileName(result.sourceUrl, result.blob))
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
     window.$message?.success('已开始保存当前背景')
   }
   catch {
-    triggerDownload(mediaUrl, getBackgroundFileName(mediaUrl), true)
-    window.$message?.warning('当前背景受跨域限制，已尝试用浏览器直接保存')
+    window.$message?.error('当前背景源无法跨域读取，保存失败')
   }
   finally {
     isSaving.value = false
@@ -214,14 +328,18 @@ async function saveCurrentBackground() {
 // 监听 URL 变化
 watch(currentUrl, (url) => {
   if (url && backgroundType.value === 'image') {
-    loadImage(url)
+    void loadImage(url)
   }
   else if (url && backgroundType.value === 'video') {
+    imageRequestId += 1
+    resetImageState()
     // 视频通过事件处理
     isLoaded.value = false
     hasError.value = false
   }
   else {
+    imageRequestId += 1
+    resetImageState()
     // 没有 URL 时重置状态
     isLoaded.value = false
     hasError.value = false
@@ -231,17 +349,18 @@ watch(currentUrl, (url) => {
 // 监听背景类型变化
 watch(backgroundType, (type) => {
   if (type === 'image' && currentUrl.value) {
-    loadImage(currentUrl.value)
+    void loadImage(currentUrl.value)
+  }
+  else {
+    imageRequestId += 1
+    resetImageState()
   }
 })
 
 // 组件卸载时清理
 onUnmounted(() => {
-  if (imageLoader) {
-    imageLoader.onload = null
-    imageLoader.onerror = null
-    imageLoader = null
-  }
+  imageRequestId += 1
+  resetImageState()
 })
 </script>
 
@@ -260,13 +379,22 @@ onUnmounted(() => {
 
       <!-- 自定义背景媒体层 -->
       <Transition name="fade">
-        <div v-if="showLoadedBackground" class="background-media" :style="backgroundStyle">
+        <div
+          v-if="showMediaBackground"
+          class="background-media"
+          :class="{ 'background-media--loaded': showLoadedBackground }"
+          :style="backgroundStyle"
+        >
           <!-- 图片背景 -->
-          <div
+          <img
             v-if="backgroundType === 'image'"
+            alt=""
             class="background-image"
-            :style="{ backgroundImage: `url(${currentUrl})` }"
-          />
+            draggable="false"
+            :src="imageDisplayUrl"
+            @error="handleImageError"
+            @load="handleImageLoaded"
+          >
           <!-- 视频背景 -->
           <video
             v-else-if="backgroundType === 'video'"
@@ -370,21 +498,27 @@ html.dark .background-loading {
   left: 0;
   width: 100%;
   height: 100%;
+  opacity: 0;
   transform: scale(1.1); // 防止模糊边缘露出白边
+  transition: opacity 0.8s ease;
+}
+
+.background-media--loaded {
+  opacity: 1;
 }
 
 .background-image {
   width: 100%;
   height: 100%;
-  background-size: cover;
-  background-position: center;
-  background-repeat: no-repeat;
+  object-fit: cover;
+  object-position: center;
 }
 
 .background-video {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  object-position: center;
 }
 
 .background-overlay {
