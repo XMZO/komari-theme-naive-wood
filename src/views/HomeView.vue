@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useDebounceFn } from '@vueuse/core'
-import { NAlert, NDivider, NEmpty, NInput, NRadioButton, NRadioGroup, NTabPane, NTabs } from 'naive-ui'
+import { NAlert, NButton, NDivider, NEmpty, NInput, NTabPane, NTabs } from 'naive-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
@@ -181,14 +181,28 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             </template>
           </NInput>
         </LiquidGlassSurface>
-        <NRadioGroup v-model:value="appStore.nodeViewMode" class="view-selector">
-          <NRadioButton value="card" class="view-selector-item">
+        <div class="view-selector" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" role="radiogroup">
+          <NButton
+            class="view-selector-item"
+            :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'card' }"
+            :aria-pressed="appStore.nodeViewMode === 'card'"
+            title="卡片视图"
+            text
+            @click="appStore.nodeViewMode = 'card'"
+          >
             <AppIcon name="view-grid-card" class="view-selector-icon" />
-          </NRadioButton>
-          <NRadioButton value="list" class="view-selector-item">
+          </NButton>
+          <NButton
+            class="view-selector-item"
+            :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'list' }"
+            :aria-pressed="appStore.nodeViewMode === 'list'"
+            title="列表视图"
+            text
+            @click="appStore.nodeViewMode = 'list'"
+          >
             <AppIcon name="view-list" class="view-selector-icon" />
-          </NRadioButton>
-        </NRadioGroup>
+          </NButton>
+        </div>
       </div>
       <div class="nodes">
         <NTabs v-if="showGroupTabs" v-model:value="appStore.nodeSelectedGroup" animated>
@@ -240,30 +254,65 @@ html.dark .search-glass--enabled :deep(.n-input) {
   border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
-.view-selector :deep(.n-radio__label) {
-  width: 100%;
-  height: 100%;
-
+.view-selector {
   display: flex;
   align-items: center;
-  justify-content: center;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 2px;
+  overflow: hidden;
+  background-color: var(--n-color, rgba(248, 250, 252, 0.72));
+  border: 1px solid var(--n-border-color, rgba(255, 255, 255, 0.52));
+  border-radius: var(--n-border-radius);
+}
+
+.view-selector-item {
+  width: 32px;
+  height: 32px;
+  color: rgba(15, 23, 42, 0.72) !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  border-radius: calc(var(--n-border-radius) - 1px) !important;
+}
+
+.view-selector-item:hover {
+  color: rgba(15, 23, 42, 0.96) !important;
+  background-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+.view-selector-item--active {
+  color: var(--primary-color) !important;
+  background-color: color-mix(in srgb, var(--primary-color) 16%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 34%, transparent);
+}
+
+.view-selector-item :deep(.n-button__content) {
+  color: inherit !important;
 }
 
 .view-selector-icon {
   width: 1.125rem;
   height: 1.125rem;
-  color: rgba(15, 23, 42, 0.88) !important;
+  color: inherit !important;
 }
 
-.view-selector :deep(.n-radio-button.n-radio-button--checked) .view-selector-icon {
-  color: #fff !important;
+html.dark .view-selector-item {
+  color: rgba(248, 250, 252, 0.76) !important;
 }
 
-html.dark .view-selector-icon {
-  color: rgba(248, 250, 252, 0.94) !important;
+html.dark .view-selector {
+  background-color: var(--n-color, rgba(17, 24, 39, 0.72));
+  border-color: var(--n-border-color, rgba(255, 255, 255, 0.13));
 }
 
-html.dark .view-selector :deep(.n-radio-button.n-radio-button--checked) .view-selector-icon {
-  color: #0f172a !important;
+html.dark .view-selector-item:hover {
+  color: rgba(248, 250, 252, 0.98) !important;
+  background-color: rgba(248, 250, 252, 0.08) !important;
+}
+
+html.dark .view-selector-item--active {
+  color: var(--primary-color) !important;
+  background-color: color-mix(in srgb, var(--primary-color) 20%, transparent) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 42%, transparent);
 }
 </style>
