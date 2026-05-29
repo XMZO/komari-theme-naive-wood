@@ -2,7 +2,7 @@
   "name": "Komari Naive",
   "short": "Naive",
   "description": "A naive-ui theme for Komari",
-  "version": "2.0.7",
+  "version": "2.0.8",
   "author": "lyimoexiao",
   "url": "https://github.com/XMZO/komari-theme-naive-wood",
   "preview": "preview.png",
@@ -48,7 +48,7 @@
       { "key": "darkPrimaryColorHover", "name": "主色调悬停色", "type": "string", "default": "#7fe7c4", "help": "暗色模式按钮悬停颜色" },
       { "key": "darkPrimaryColorPressed", "name": "主色调按下色", "type": "string", "default": "#5acea7", "help": "暗色模式按钮按下颜色" },
       { "name": "卡片材质", "type": "title" },
-      { "key": "cardMaterial", "name": "卡片材质", "type": "select", "default": "auto", "options": "auto,solid,translucent,acrylic", "help": "auto 会在启用自定义背景时使用清晰半透明卡片；solid 为普通实色卡片；translucent 为不模糊背景的清晰半透明；acrylic 为带高斯模糊的毛玻璃" },
+      { "key": "cardMaterial", "name": "卡片材质", "type": "select", "default": "auto", "options": "auto,solid,translucent,acrylic,liquid-glass", "help": "auto 会在启用自定义背景时使用清晰半透明卡片；solid 为普通实色卡片；translucent 为不模糊背景的清晰半透明；acrylic 为带高斯模糊的毛玻璃；liquid-glass 为实验液体玻璃" },
       { "name": "格式化设置", "type": "title" },
       { "key": "uptimeFormat", "name": "运行时间格式", "type": "select", "default": "day", "options": "day,hour,minute,second", "help": "运行时间显示精度：精确到天/小时/分钟/秒" },
       { "key": "uptimeShortUnit", "name": "运行时间短单位", "type": "switch", "default": false, "help": "启用后将运行时间单位显示为 d/h/m/s，例如 2d 20h，减少换行" },
@@ -76,14 +76,12 @@
       { "key": "darkBackgroundUrl", "name": "暗色模式背景地址", "type": "string", "default": "", "help": "暗色模式下的背景图片/视频 URL" },
       { "key": "backgroundBlur", "name": "背景模糊半径", "type": "number", "default": 0, "help": "背景的高斯模糊半径（单位：px），0 表示不模糊" },
       { "key": "backgroundOverlay", "name": "背景遮罩透明度", "type": "number", "default": 0, "help": "背景遮罩层的透明度（0-100），0 表示无遮罩，数值越大遮罩越深" },
-      { "name": "液体玻璃效果", "type": "title" },
-      { "key": "liquidGlassEnabled", "name": "启用 Liquid Glass", "type": "switch", "default": false, "help": "启用真实 SVG 位移 + backdrop-filter 的 Liquid Glass 材质。已使用共享滤镜降低开销，但仍比普通卡片更吃性能" },
-      { "key": "liquidGlassScope", "name": "液体玻璃范围", "type": "select", "default": "node-card", "options": "node-card,cards,interface,all", "help": "node-card 仅节点卡片；cards 包含节点、概览、详情和图表卡片；interface 包含列表、搜索框和页脚；all 为全部界面" },
-      { "key": "liquidGlassTint", "name": "液体玻璃底色", "type": "select", "default": "auto", "options": "auto,transparent,white,black", "help": "auto 会根据明暗模式自动选择，transparent 更通透，white/black 更厚重" },
-      { "key": "liquidGlassStrength", "name": "材质强度", "type": "number", "default": 48, "help": "控制材质高光和透明感，建议 36-72" },
-      { "key": "liquidGlassDepth", "name": "边缘厚度", "type": "number", "default": 10, "help": "控制厚边高光和内凹阴影，建议 8-18" },
-      { "key": "liquidGlassBlur", "name": "玻璃模糊", "type": "number", "default": 0, "help": "控制 backdrop-filter 模糊半径，建议 0-6，过高会更吃性能" },
-      { "key": "liquidGlassChromaticAberration", "name": "色散强度", "type": "number", "default": 2, "help": "控制边缘色散偏移强度，0 表示关闭，建议 2-5" }
+      { "name": "液体玻璃参数", "type": "title" },
+      { "key": "liquidGlassTint", "name": "液体玻璃底色", "type": "select", "default": "auto", "options": "auto,transparent,white,black", "help": "仅当卡片材质选择 liquid-glass 时生效。auto 会根据明暗模式自动选择，transparent 更通透，white/black 更厚重" },
+      { "key": "liquidGlassStrength", "name": "材质强度", "type": "number", "default": 48, "help": "仅当卡片材质选择 liquid-glass 时生效。控制材质高光和透明感，建议 36-72" },
+      { "key": "liquidGlassDepth", "name": "边缘厚度", "type": "number", "default": 10, "help": "仅当卡片材质选择 liquid-glass 时生效。控制厚边高光和内凹阴影，建议 8-18" },
+      { "key": "liquidGlassBlur", "name": "玻璃模糊", "type": "number", "default": 0, "help": "仅当卡片材质选择 liquid-glass 时生效。控制 backdrop-filter 模糊半径，建议 0-6，过高会更吃性能" },
+      { "key": "liquidGlassChromaticAberration", "name": "色散强度", "type": "number", "default": 2, "help": "仅当卡片材质选择 liquid-glass 时生效。控制边缘色散偏移强度，0 表示关闭，建议 2-5" }
     ]
   }
 }

@@ -9,9 +9,8 @@ type Lang = 'zh-CN' | 'en-US'
 type NodeViewMode = 'card' | 'list'
 type RpcTransportMode = 'websocket' | 'http'
 type AlertType = 'default' | 'info' | 'success' | 'warning' | 'error'
-type CardMaterial = 'auto' | 'solid' | 'translucent' | 'acrylic'
+type CardMaterial = 'auto' | 'solid' | 'translucent' | 'acrylic' | 'liquid-glass'
 type ResolvedCardMaterial = Exclude<CardMaterial, 'auto'>
-type LiquidGlassScope = 'node-card' | 'cards' | 'interface' | 'all'
 type LiquidGlassTint = 'auto' | 'transparent' | 'white' | 'black'
 type ResolvedLiquidGlassTint = Exclude<LiquidGlassTint, 'auto'>
 
@@ -609,7 +608,7 @@ const useAppStore = defineStore('app', () => {
 
   const cardMaterial = computed<CardMaterial>(() => {
     const settings = publicSettings.value?.theme_settings
-    const validMaterials: CardMaterial[] = ['auto', 'solid', 'translucent', 'acrylic']
+    const validMaterials: CardMaterial[] = ['auto', 'solid', 'translucent', 'acrylic', 'liquid-glass']
 
     if (settings && typeof settings.cardMaterial === 'string') {
       const material = settings.cardMaterial as CardMaterial
@@ -635,6 +634,9 @@ const useAppStore = defineStore('app', () => {
     if (!cardMaterialActive.value) {
       return ''
     }
+    if (resolvedCardMaterial.value === 'liquid-glass') {
+      return ''
+    }
     return `card-material-${resolvedCardMaterial.value}`
   })
 
@@ -649,24 +651,7 @@ const useAppStore = defineStore('app', () => {
   const cardMaterialBlurClass = computed<string>(() => getBlurClass(cardBlurRadius.value))
 
   const liquidGlassEnabled = computed<boolean>(() => {
-    const settings = publicSettings.value?.theme_settings
-    if (settings && typeof settings.liquidGlassEnabled === 'boolean') {
-      return settings.liquidGlassEnabled
-    }
-    return false
-  })
-
-  const liquidGlassScope = computed<LiquidGlassScope>(() => {
-    const settings = publicSettings.value?.theme_settings
-    const validScopes: LiquidGlassScope[] = ['node-card', 'cards', 'interface', 'all']
-
-    if (settings && typeof settings.liquidGlassScope === 'string') {
-      const scope = settings.liquidGlassScope as LiquidGlassScope
-      if (validScopes.includes(scope)) {
-        return scope
-      }
-    }
-    return 'node-card'
+    return resolvedCardMaterial.value === 'liquid-glass'
   })
 
   const liquidGlassTint = computed<LiquidGlassTint>(() => {
@@ -717,15 +702,7 @@ const useAppStore = defineStore('app', () => {
     if (!liquidGlassEnabled.value) {
       return false
     }
-
-    const currentScope = liquidGlassScope.value
-    if (currentScope === 'all') {
-      return true
-    }
-    if (scope === 'node-card') {
-      return currentScope === 'node-card' || currentScope === 'cards'
-    }
-    return currentScope === scope
+    return scope === 'node-card' || scope === 'cards' || scope === 'interface'
   }
 
   // 当 publicSettings 加载后，如果 localStorage 没有保存过视图模式或值为非法值，使用默认值
@@ -821,7 +798,6 @@ const useAppStore = defineStore('app', () => {
     cardBlurRadius,
     cardMaterialBlurClass,
     liquidGlassEnabled,
-    liquidGlassScope,
     liquidGlassTint,
     resolvedLiquidGlassTint,
     liquidGlassStrength,
