@@ -20,6 +20,7 @@ const NodeCard = defineAsyncComponent(() => import('@/components/NodeCard.vue'))
 const NodeEarthView = defineAsyncComponent(() => import('@/components/NodeEarthView.vue'))
 const NodeGeneralCards = defineAsyncComponent(() => import('@/components/NodeGeneralCards.vue'))
 const NodeList = defineAsyncComponent(() => import('@/components/NodeList.vue'))
+const RenewalStats = defineAsyncComponent(() => import('@/components/RenewalStats.vue'))
 
 const appStore = useAppStore()
 const nodesStore = useNodesStore()
@@ -168,6 +169,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
       </NAlert>
     </div>
     <NodeGeneralCards />
+    <RenewalStats v-if="appStore.showRenewalStats && nodesStore.nodes.length > 0" :nodes="nodesStore.nodes" />
     <NDivider class="my-0! px-4!" dashed />
     <div class="node-info p-4 flex flex-col gap-4">
       <div class="search flex gap-2 items-center">
