@@ -18,6 +18,7 @@
       { "key": "showLoginButton", "name": "未登录状态显示登录按钮", "type": "switch", "default": true, "help": "控制未登录状态下是否显示登录按钮" },
       { "key": "showPingChartButton", "name": "显示延迟图表按钮", "type": "switch", "default": true, "help": "在节点卡片和列表中显示查看延迟图表的按钮" },
       { "key": "showRenewalStats", "name": "显示续费统计", "type": "switch", "default": true, "help": "在首页显示月均支出、年化估算、30 天内续费和剩余价值。不同币种分开统计，不自动换算" },
+      { "key": "allowGuestRenewalStats", "name": "未登录允许查看续费统计", "type": "switch", "default": false, "help": "关闭时，未登录访客不会显示续费统计入口，且即使手动调用打开方法也会被拦截" },
       { "key": "hideSingleGroupTab", "name": "单分组时隐藏 Tab", "type": "switch", "default": true, "help": "当只有一个分组时，隐藏分组选择标签页" },
       { "name": "卡片视图", "type": "title" },
       { "key": "lightCardContrast", "name": "亮色卡片高对比度", "type": "switch", "default": false, "help": "启用后，在亮色模式下为卡片添加阴影和边框，增强与背景的对比度" },

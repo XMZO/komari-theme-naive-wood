@@ -370,6 +370,15 @@ const useAppStore = defineStore('app', () => {
     return true
   })
 
+  // 计算属性：未登录状态是否允许查看续费统计
+  const allowGuestRenewalStats = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.allowGuestRenewalStats === 'boolean') {
+      return settings.allowGuestRenewalStats
+    }
+    return false
+  })
+
   // 计算属性：是否将标签设置为单独一行显示
   const tagsInSeparateRow = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -785,6 +794,7 @@ const useAppStore = defineStore('app', () => {
     listTagsStyle,
     showPingChartButton,
     showRenewalStats,
+    allowGuestRenewalStats,
     tagsInSeparateRow,
     uptimeTagWrap,
     uptimeFormat,

@@ -149,9 +149,30 @@ const nodeList = computed(() => {
   return filteredNodes
 })
 
+const canUseRenewalStats = computed(() => {
+  return appStore.showRenewalStats
+    && nodesStore.nodes.length > 0
+    && (appStore.isLoggedIn || appStore.allowGuestRenewalStats)
+})
+
 function handleNodeClick(node: typeof nodesStore.nodes[number]) {
   router.push({ name: 'instance-detail', params: { id: node.uuid } })
 }
+
+function openRenewalStats() {
+  if (!canUseRenewalStats.value) {
+    showRenewalDrawer.value = false
+    return
+  }
+
+  showRenewalDrawer.value = true
+}
+
+watch(canUseRenewalStats, (allowed) => {
+  if (!allowed) {
+    showRenewalDrawer.value = false
+  }
+})
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 </script>
@@ -184,19 +205,16 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             </template>
           </NInput>
         </LiquidGlassSurface>
-        <NButton
-          v-if="appStore.showRenewalStats && nodesStore.nodes.length > 0"
-          class="renewal-trigger"
-          :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]"
-          title="续费统计"
-          @click="showRenewalDrawer = true"
-        >
-          <template #icon>
-            <div class="i-icon-park-outline-bill" />
-          </template>
-          <span class="renewal-trigger__text">续费</span>
-        </NButton>
         <div class="view-selector" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" role="radiogroup">
+          <NButton
+            v-if="canUseRenewalStats"
+            class="view-selector-item renewal-trigger"
+            title="续费统计"
+            text
+            @click="openRenewalStats"
+          >
+            <div class="i-icon-park-outline-bill view-selector-icon" />
+          </NButton>
           <NButton
             class="view-selector-item"
             :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'card' }"
@@ -263,7 +281,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         </template>
       </div>
     </div>
-    <NDrawer v-model:show="showRenewalDrawer" :width="720" placement="right">
+    <NDrawer v-if="canUseRenewalStats" v-model:show="showRenewalDrawer" :width="720" placement="right">
       <NDrawerContent title="续费统计" closable>
         <RenewalStats :nodes="nodesStore.nodes" embedded />
       </NDrawerContent>
@@ -298,34 +316,6 @@ html.dark .search-glass--enabled :deep(.n-input) {
   background-color: var(--n-color, rgba(248, 250, 252, 0.72));
   border: 1px solid var(--n-border-color, rgba(255, 255, 255, 0.52));
   border-radius: var(--n-border-radius);
-}
-
-.renewal-trigger {
-  flex-shrink: 0;
-  color: rgba(15, 23, 42, 0.82) !important;
-}
-
-.renewal-trigger :deep(.n-button__content) {
-  gap: 4px;
-}
-
-.renewal-trigger__text {
-  font-size: 0.8125rem;
-}
-
-html.dark .renewal-trigger {
-  color: rgba(248, 250, 252, 0.86) !important;
-}
-
-@media (max-width: 640px) {
-  .renewal-trigger {
-    width: 32px;
-    padding: 0 !important;
-  }
-
-  .renewal-trigger__text {
-    display: none;
-  }
 }
 
 .view-selector-item {
