@@ -14,9 +14,12 @@ import {
   getRenewalUrgencyType,
 } from '@/utils/renewalStats'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   nodes: NodeData[]
-}>()
+  embedded?: boolean
+}>(), {
+  embedded: false,
+})
 
 const appStore = useAppStore()
 const now = useNow({ interval: 60000 })
@@ -57,7 +60,13 @@ const summaryTags = computed(() => {
 </script>
 
 <template>
-  <div class="renewal-stats px-4 pb-4" :class="{ 'light-renewal-contrast': appStore.lightCardContrast && !appStore.isDark }">
+  <div
+    class="renewal-stats"
+    :class="{
+      'renewal-stats--embedded': props.embedded,
+      'light-renewal-contrast': appStore.lightCardContrast && !appStore.isDark,
+    }"
+  >
     <LiquidGlassSurface scope="cards" class="renewal-stats-glass" :class="{ 'renewal-stats-glass--enabled': hasLiquidGlass }">
       <NCard
         hoverable
@@ -190,6 +199,14 @@ const summaryTags = computed(() => {
 </template>
 
 <style scoped lang="scss">
+.renewal-stats {
+  padding: 0 16px 16px;
+}
+
+.renewal-stats--embedded {
+  padding: 0;
+}
+
 .renewal-stats-glass {
   display: block;
 }

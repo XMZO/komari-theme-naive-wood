@@ -5,7 +5,7 @@ import type { NodeData } from '@/stores/nodes'
 import * as L from 'leaflet'
 import { feature } from 'topojson-client'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import countriesTopology from 'world-atlas/countries-110m.json'
+import countriesTopology from 'world-atlas/countries-50m.json'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { getRegionCode, getRegionDisplayName } from '@/utils/regionHelper'
@@ -59,13 +59,21 @@ const mapNameAliases: Record<string, string> = {
   'United States of America': 'United States',
 }
 
-const smallRegionCoordinates: Record<string, [number, number]> = {
-  HK: [22.3193, 114.1694],
-  MO: [22.1987, 113.5439],
-  SG: [1.3521, 103.8198],
+interface SmallRegionDisplay {
+  anchor: [number, number]
+  label: [number, number]
 }
 
-const smallRegionCodes = new Set(Object.keys(smallRegionCoordinates))
+const smallRegionDisplays: Record<string, SmallRegionDisplay> = {
+  HK: { anchor: [22.3193, 114.1694], label: [22.85, 116.25] },
+  MO: { anchor: [22.1987, 113.5439], label: [21.35, 111.7] },
+  MC: { anchor: [43.7384, 7.4246], label: [43.2, 5.4] },
+  SG: { anchor: [1.3521, 103.8198], label: [0.9, 108.4] },
+  SM: { anchor: [43.9424, 12.4578], label: [43.2, 14.4] },
+  VA: { anchor: [41.9029, 12.4534], label: [41.1, 14.1] },
+}
+
+const smallRegionCodes = new Set(Object.keys(smallRegionDisplays))
 const chinaRegionCodes = new Set(['CN', 'HK', 'MO', 'TW'])
 const chinaRegionNames = new Set(Object.values(regionNameOverrides))
 
@@ -320,20 +328,42 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
       continue
 
     const code = getRegionCodeByMapName(regionName) ?? getRegionCode(firstNode.region)
-    const coords = smallRegionCoordinates[code]
-    if (!coords || !smallRegionCodes.has(code))
+    const display = smallRegionDisplays[code]
+    if (!display || !smallRegionCodes.has(code))
       continue
 
     const status = getRegionStatus(regionName)
     const color = getStatusColor(status)
-    const marker = L.circleMarker(coords, {
-      className: 'earth-small-region-marker',
+
+    const leader = L.polyline([display.anchor, display.label], {
+      color,
+      dashArray: '4 4',
+      interactive: false,
+      opacity: 0.78,
+      weight: 1.5,
+    })
+    layerGroup.addLayer(leader)
+
+    const anchor = L.circleMarker(display.anchor, {
+      className: 'earth-small-region-anchor',
       color,
       fillColor: color,
-      fillOpacity: 0.84,
-      opacity: 1,
-      radius: 6,
-      weight: 2,
+      fillOpacity: 0.92,
+      interactive: false,
+      opacity: 0.92,
+      radius: 2.5,
+      weight: 1,
+    })
+    layerGroup.addLayer(anchor)
+
+    const marker = L.marker(display.label, {
+      icon: L.divIcon({
+        className: 'earth-small-region-marker',
+        html: `<span class="earth-small-region-pill" style="--earth-region-color:${color}">${escapeHtml(code)}</span>`,
+        iconAnchor: [14, 14],
+        iconSize: [28, 28],
+      }),
+      keyboard: false,
     })
 
     marker.bindTooltip(getTooltipContent(regionName, regionNodes), {
@@ -346,10 +376,12 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
     marker.on({
       click: () => handleRegionClick(regionNodes),
       mouseout: () => {
-        marker.setStyle({ fillOpacity: 0.84, radius: 6, weight: 2 })
+        marker.getElement()?.classList.remove('earth-small-region-marker--hover')
+        leader.setStyle({ opacity: 0.78, weight: 1.5 })
       },
       mouseover: () => {
-        marker.setStyle({ fillOpacity: 1, radius: 7, weight: 3 })
+        marker.getElement()?.classList.add('earth-small-region-marker--hover')
+        leader.setStyle({ opacity: 1, weight: 2.2 })
       },
     })
 
@@ -567,6 +599,43 @@ html.dark .earth-view-glass--enabled :deep(.earth-view) {
 :deep(.leaflet-container) {
   color: inherit;
   font-family: inherit;
+}
+
+:deep(.earth-small-region-marker) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 0;
+}
+
+:deep(.earth-small-region-pill) {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background-color: var(--earth-region-color);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.22);
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  transition:
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+:deep(.earth-small-region-marker--hover .earth-small-region-pill) {
+  transform: scale(1.12);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.28);
+}
+
+.earth-view--dark :deep(.earth-small-region-pill) {
+  border-color: rgba(15, 23, 42, 0.94);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
 }
 
 :deep(.leaflet-control-zoom) {

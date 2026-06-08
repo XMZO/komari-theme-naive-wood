@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useDebounceFn } from '@vueuse/core'
-import { NAlert, NButton, NDivider, NEmpty, NInput, NTabPane, NTabs } from 'naive-ui'
+import { NAlert, NButton, NDivider, NDrawer, NDrawerContent, NEmpty, NInput, NTabPane, NTabs } from 'naive-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
@@ -43,6 +43,7 @@ onDeactivated(() => {
 })
 
 const searchText = ref('')
+const showRenewalDrawer = ref(false)
 // 防抖后的搜索文本
 const debouncedSearchText = ref('')
 
@@ -169,7 +170,6 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
       </NAlert>
     </div>
     <NodeGeneralCards />
-    <RenewalStats v-if="appStore.showRenewalStats && nodesStore.nodes.length > 0" :nodes="nodesStore.nodes" />
     <NDivider class="my-0! px-4!" dashed />
     <div class="node-info p-4 flex flex-col gap-4">
       <div class="search flex gap-2 items-center">
@@ -184,6 +184,18 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             </template>
           </NInput>
         </LiquidGlassSurface>
+        <NButton
+          v-if="appStore.showRenewalStats && nodesStore.nodes.length > 0"
+          class="renewal-trigger"
+          :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]"
+          title="续费统计"
+          @click="showRenewalDrawer = true"
+        >
+          <template #icon>
+            <div class="i-icon-park-outline-bill" />
+          </template>
+          <span class="renewal-trigger__text">续费</span>
+        </NButton>
         <div class="view-selector" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" role="radiogroup">
           <NButton
             class="view-selector-item"
@@ -251,6 +263,11 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         </template>
       </div>
     </div>
+    <NDrawer v-model:show="showRenewalDrawer" :width="720" placement="right">
+      <NDrawerContent title="续费统计" closable>
+        <RenewalStats :nodes="nodesStore.nodes" embedded />
+      </NDrawerContent>
+    </NDrawer>
   </div>
 </template>
 
@@ -281,6 +298,34 @@ html.dark .search-glass--enabled :deep(.n-input) {
   background-color: var(--n-color, rgba(248, 250, 252, 0.72));
   border: 1px solid var(--n-border-color, rgba(255, 255, 255, 0.52));
   border-radius: var(--n-border-radius);
+}
+
+.renewal-trigger {
+  flex-shrink: 0;
+  color: rgba(15, 23, 42, 0.82) !important;
+}
+
+.renewal-trigger :deep(.n-button__content) {
+  gap: 4px;
+}
+
+.renewal-trigger__text {
+  font-size: 0.8125rem;
+}
+
+html.dark .renewal-trigger {
+  color: rgba(248, 250, 252, 0.86) !important;
+}
+
+@media (max-width: 640px) {
+  .renewal-trigger {
+    width: 32px;
+    padding: 0 !important;
+  }
+
+  .renewal-trigger__text {
+    display: none;
+  }
 }
 
 .view-selector-item {
