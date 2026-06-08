@@ -66,6 +66,8 @@ const smallRegionCoordinates: Record<string, [number, number]> = {
 }
 
 const smallRegionCodes = new Set(Object.keys(smallRegionCoordinates))
+const chinaRegionCodes = new Set(['CN', 'HK', 'MO', 'TW'])
+const chinaRegionNames = new Set(Object.values(regionNameOverrides))
 
 const groupedNodes = computed(() => {
   const groups = new Map<string, NodeData[]>()
@@ -87,7 +89,19 @@ const groupedNodes = computed(() => {
   return groups
 })
 
-const activeRegionNames = computed(() => new Set(groupedNodes.value.keys()))
+const chinaRegionNodes = computed(() => {
+  return props.nodes.filter(node => chinaRegionCodes.has(getRegionCode(node.region)))
+})
+
+const activeRegionNames = computed(() => {
+  const names = new Set(groupedNodes.value.keys())
+  if (chinaRegionNodes.value.length > 0) {
+    for (const name of chinaRegionNames) {
+      names.add(name)
+    }
+  }
+  return names
+})
 
 const nodeCounts = computed(() => {
   const online = props.nodes.filter(node => node.online).length
@@ -208,10 +222,17 @@ function getFeatureName(feature: Feature | undefined): string {
 }
 
 function getRegionStatus(regionName: string): RegionStatus {
-  const nodes = groupedNodes.value.get(regionName)
-  if (!nodes || nodes.length === 0)
-    return 'inactive'
+  if (chinaRegionNames.has(regionName) && chinaRegionNodes.value.length > 0) {
+    return getNodesStatus(chinaRegionNodes.value)
+  }
 
+  const nodes = groupedNodes.value.get(regionName)
+  return getNodesStatus(nodes ?? [])
+}
+
+function getNodesStatus(nodes: NodeData[]): RegionStatus {
+  if (nodes.length === 0)
+    return 'inactive'
   const onlineCount = nodes.filter(node => node.online).length
   if (onlineCount === 0)
     return 'offline'
@@ -261,7 +282,7 @@ function countryStyle(feature?: Feature): L.PathOptions {
 
 function onEachFeature(feature: Feature, layer: Layer) {
   const regionName = getFeatureName(feature)
-  const regionNodes = groupedNodes.value.get(regionName)
+  const regionNodes = getDisplayRegionNodes(regionName)
   if (!regionNodes || regionNodes.length === 0)
     return
 
@@ -289,12 +310,16 @@ function onEachFeature(feature: Feature, layer: Layer) {
 }
 
 function renderSmallRegions(layerGroup: L.LayerGroup) {
-  for (const [regionName, regionNodes] of groupedNodes.value.entries()) {
+  for (const regionName of activeRegionNames.value) {
+    const regionNodes = getDisplayRegionNodes(regionName)
+    if (!regionNodes || regionNodes.length === 0)
+      continue
+
     const firstNode = regionNodes[0]
     if (!firstNode)
       continue
 
-    const code = getRegionCode(firstNode.region)
+    const code = getRegionCodeByMapName(regionName) ?? getRegionCode(firstNode.region)
     const coords = smallRegionCoordinates[code]
     if (!coords || !smallRegionCodes.has(code))
       continue
@@ -330,6 +355,21 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
 
     layerGroup.addLayer(marker)
   }
+}
+
+function getDisplayRegionNodes(regionName: string): NodeData[] {
+  if (chinaRegionNames.has(regionName) && chinaRegionNodes.value.length > 0) {
+    return chinaRegionNodes.value
+  }
+  return groupedNodes.value.get(regionName) ?? []
+}
+
+function getRegionCodeByMapName(regionName: string): string | undefined {
+  for (const [code, name] of Object.entries(regionNameOverrides)) {
+    if (name === regionName)
+      return code
+  }
+  return undefined
 }
 
 function handleRegionClick(regionNodes: NodeData[]) {
