@@ -23,6 +23,7 @@ declare module 'vue' {
     LoginDialog: typeof import('./src/components/LoginDialog.vue')['default']
     MarkdownRenderer: typeof import('./src/components/MarkdownRenderer.vue')['default']
     NodeCard: typeof import('./src/components/NodeCard.vue')['default']
+    NodeEarthView: typeof import('./src/components/NodeEarthView.vue')['default']
     NodeGeneralCards: typeof import('./src/components/NodeGeneralCards.vue')['default']
     NodeList: typeof import('./src/components/NodeList.vue')['default']
     PingChart: typeof import('./src/components/PingChart.vue')['default']

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-export type AppIconName = 'dark-mode' | 'sun-one' | 'moon' | 'setting' | 'login' | 'view-grid-card' | 'view-list' | 'download'
+export type AppIconName = 'dark-mode' | 'sun-one' | 'moon' | 'setting' | 'login' | 'view-grid-card' | 'view-list' | 'view-earth' | 'download'
 
 defineProps<{
   name: AppIconName
@@ -39,6 +39,11 @@ defineProps<{
       <rect width="32" height="40" x="8" y="4" stroke="currentColor" stroke-linejoin="round" stroke-width="4" rx="2" />
       <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4" d="M21 14h12M21 24h12M21 34h12" />
       <path fill="currentColor" fill-rule="evenodd" d="M15 16a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 10a2 2 0 1 0 0-4a2 2 0 0 0 0 4m0 10a2 2 0 1 0 0-4a2 2 0 0 0 0 4" clip-rule="evenodd" />
+    </g>
+    <g v-else-if="name === 'view-earth'" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+      <path d="M24 44c11.046 0 20-8.954 20-20S35.046 4 24 4S4 12.954 4 24s8.954 20 20 20Z" />
+      <path d="M4 24h40M24 4c5.2 5.48 7.8 12.147 7.8 20S29.2 38.52 24 44M24 4c-5.2 5.48-7.8 12.147-7.8 20S18.8 38.52 24 44" />
+      <path d="M8.8 11.6c3.733 2.133 8.8 3.2 15.2 3.2s11.467-1.067 15.2-3.2M8.8 36.4c3.733-2.133 8.8-3.2 15.2-3.2s11.467 1.067 15.2 3.2" />
     </g>
     <g v-else-if="name === 'download'" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
       <path d="M6 24.008V42h36V24" />

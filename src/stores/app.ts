@@ -6,7 +6,7 @@ import { computed, ref, watch } from 'vue'
 
 type ThemeMode = 'auto' | 'light' | 'dark'
 type Lang = 'zh-CN' | 'en-US'
-type NodeViewMode = 'card' | 'list'
+type NodeViewMode = 'card' | 'list' | 'earth'
 type RpcTransportMode = 'websocket' | 'http'
 type AlertType = 'default' | 'info' | 'success' | 'warning' | 'error'
 type CardMaterial = 'auto' | 'solid' | 'translucent' | 'acrylic' | 'liquid-glass'
@@ -87,7 +87,7 @@ const useAppStore = defineStore('app', () => {
     const settings = publicSettings.value?.theme_settings
     if (settings && typeof settings.defaultViewMode === 'string') {
       const mode = settings.defaultViewMode
-      if (mode === 'card' || mode === 'list') {
+      if (mode === 'card' || mode === 'list' || mode === 'earth') {
         return mode
       }
     }
@@ -96,7 +96,7 @@ const useAppStore = defineStore('app', () => {
 
   // 校验视图模式是否为合法值
   function isValidViewMode(value: string | null): value is NodeViewMode {
-    return value === 'card' || value === 'list'
+    return value === 'card' || value === 'list' || value === 'earth'
   }
 
   // 当前实际使用的视图模式

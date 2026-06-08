@@ -1,7 +1,7 @@
 {
   "name": "komari-theme-naive",
   "type": "module",
-  "version": "2.0.18",
+  "version": "2.0.19",
   "author": {
     "name": "lyimoexiao",
     "email": "lyimoexiao@outlook.com",
@@ -24,16 +24,22 @@
   "dependencies": {
     "dayjs": "catalog:",
     "echarts": "catalog:",
+    "leaflet": "catalog:",
     "pinia": "catalog:",
+    "topojson-client": "catalog:",
     "vue": "catalog:",
-    "vue-router": "catalog:"
+    "vue-router": "catalog:",
+    "world-atlas": "catalog:"
   },
   "devDependencies": {
     "@antfu/eslint-config": "catalog:",
     "@iconify/json": "catalog:",
     "@tsconfig/node24": "catalog:",
+    "@types/geojson": "catalog:",
     "@types/js-cookie": "catalog:",
+    "@types/leaflet": "catalog:",
     "@types/node": "catalog:",
+    "@types/topojson-client": "catalog:",
     "@unocss/eslint-config": "catalog:",
     "@unocss/eslint-plugin": "catalog:",
     "@unocss/preset-icons": "catalog:",

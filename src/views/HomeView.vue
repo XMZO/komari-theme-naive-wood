@@ -17,6 +17,7 @@ defineOptions({
 
 // 异步组件：按需加载，减少首屏体积
 const NodeCard = defineAsyncComponent(() => import('@/components/NodeCard.vue'))
+const NodeEarthView = defineAsyncComponent(() => import('@/components/NodeEarthView.vue'))
 const NodeGeneralCards = defineAsyncComponent(() => import('@/components/NodeGeneralCards.vue'))
 const NodeList = defineAsyncComponent(() => import('@/components/NodeList.vue'))
 
@@ -202,6 +203,16 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
           >
             <AppIcon name="view-list" class="view-selector-icon" />
           </NButton>
+          <NButton
+            class="view-selector-item"
+            :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'earth' }"
+            :aria-pressed="appStore.nodeViewMode === 'earth'"
+            title="地球视图"
+            text
+            @click="appStore.nodeViewMode = 'earth'"
+          >
+            <AppIcon name="view-earth" class="view-selector-icon" />
+          </NButton>
         </div>
       </div>
       <div class="nodes">
@@ -213,6 +224,8 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             </div>
             <!-- List 视图 -->
             <NodeList v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'" :nodes="nodeList" @click="handleNodeClick" />
+            <!-- Earth 视图 -->
+            <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
             <!-- 空状态 -->
             <div v-else class="text-gray-500 text-center">
               <NEmpty description="暂无节点" />
@@ -227,6 +240,8 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
           </div>
           <!-- List 视图 -->
           <NodeList v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'" :nodes="nodeList" @click="handleNodeClick" />
+          <!-- Earth 视图 -->
+          <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
           <!-- 空状态 -->
           <div v-else class="text-gray-500 text-center">
             <NEmpty description="暂无节点" />
