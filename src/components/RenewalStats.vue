@@ -3,6 +3,7 @@ import type { NodeData } from '@/stores/nodes'
 import { useNow } from '@vueuse/core'
 import { NCard, NEmpty, NTag, NText } from 'naive-ui'
 import { computed } from 'vue'
+import AppIcon from '@/components/AppIcon.vue'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import {
@@ -77,7 +78,7 @@ const summaryTags = computed(() => {
           <div class="renewal-stats-header">
             <div class="renewal-stats-heading">
               <NText class="renewal-stats-title">
-                <span class="i-icon-park-outline-bill renewal-stats-title__icon" />
+                <AppIcon name="renewal" class="renewal-stats-title__icon" />
                 续费统计
               </NText>
               <NText :depth="3" class="renewal-stats-subtitle">
@@ -251,6 +252,8 @@ html.dark .renewal-stats-glass--enabled :deep(.n-card) {
 }
 
 .renewal-stats-title__icon {
+  width: 1rem;
+  height: 1rem;
   flex-shrink: 0;
   color: var(--primary-color);
 }

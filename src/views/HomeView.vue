@@ -205,16 +205,17 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             </template>
           </NInput>
         </LiquidGlassSurface>
+        <NButton
+          v-if="canUseRenewalStats"
+          class="renewal-trigger"
+          :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]"
+          title="续费统计"
+          text
+          @click="openRenewalStats"
+        >
+          <AppIcon name="renewal" class="toolbar-icon" />
+        </NButton>
         <div class="view-selector" :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]" role="radiogroup">
-          <NButton
-            v-if="canUseRenewalStats"
-            class="view-selector-item renewal-trigger"
-            title="续费统计"
-            text
-            @click="openRenewalStats"
-          >
-            <div class="i-icon-park-outline-bill view-selector-icon" />
-          </NButton>
           <NButton
             class="view-selector-item"
             :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'card' }"
@@ -306,6 +307,31 @@ html.dark .search-glass--enabled :deep(.n-input) {
   border-color: rgba(255, 255, 255, 0.18) !important;
 }
 
+.renewal-trigger {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  color: rgba(15, 23, 42, 0.74) !important;
+  background-color: var(--n-color, rgba(248, 250, 252, 0.72)) !important;
+  border: 1px solid var(--n-border-color, rgba(255, 255, 255, 0.52)) !important;
+  border-radius: var(--n-border-radius) !important;
+}
+
+.renewal-trigger:hover {
+  color: rgba(15, 23, 42, 0.98) !important;
+  background-color: rgba(248, 250, 252, 0.86) !important;
+}
+
+.renewal-trigger :deep(.n-button__content) {
+  color: inherit !important;
+}
+
+.toolbar-icon {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: inherit !important;
+}
+
 .view-selector {
   display: flex;
   align-items: center;
@@ -352,9 +378,20 @@ html.dark .view-selector-item {
   color: rgba(248, 250, 252, 0.76) !important;
 }
 
+html.dark .renewal-trigger {
+  color: rgba(248, 250, 252, 0.78) !important;
+  background-color: var(--n-color, rgba(17, 24, 39, 0.72)) !important;
+  border-color: var(--n-border-color, rgba(255, 255, 255, 0.13)) !important;
+}
+
 html.dark .view-selector {
   background-color: var(--n-color, rgba(17, 24, 39, 0.72));
   border-color: var(--n-border-color, rgba(255, 255, 255, 0.13));
+}
+
+html.dark .renewal-trigger:hover {
+  color: rgba(248, 250, 252, 0.98) !important;
+  background-color: rgba(30, 41, 59, 0.86) !important;
 }
 
 html.dark .view-selector-item:hover {
