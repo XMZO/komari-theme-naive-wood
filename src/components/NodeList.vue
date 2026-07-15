@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { RouteLocationRaw } from 'vue-router'
 import type { NodeData } from '@/stores/nodes'
 import { NBadge, NButton, NIcon, NList, NListItem, NModal, NProgress, NTag, NText, NTooltip, useThemeVars } from 'naive-ui'
 import { computed, ref } from 'vue'
+import { RouterLink } from 'vue-router'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import PingChart from '@/components/PingChart.vue'
 import TrafficProgress from '@/components/TrafficProgress.vue'
@@ -13,6 +15,10 @@ import { formatPriceWithCycle, getDaysUntilExpired, getExpireStatus, parseTags }
 
 const props = defineProps<{
   nodes: NodeData[]
+  /** 启用后为每一行提供真实链接，支持浏览器原生中键、修饰键和右键菜单 */
+  useDetailLink?: boolean
+  /** 普通左键是否也在新标签页打开 */
+  openInNewTab?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -213,8 +219,14 @@ function getFlagSrc(region: string): string {
   return `/images/flags/${code}.svg`
 }
 
+function getNodeDetailLocation(node: NodeData): RouteLocationRaw {
+  return { name: 'instance-detail', params: { id: node.uuid } }
+}
+
 function handleClick(node: NodeData) {
-  emit('click', node)
+  if (!props.useDetailLink) {
+    emit('click', node)
+  }
 }
 
 function openPingChart(node: NodeData) {
@@ -385,6 +397,14 @@ const columnTitles: Record<string, string> = {
           :style="rowHeightStyle"
           @click="handleClick(node)"
         >
+          <RouterLink
+            v-if="props.useDetailLink"
+            :to="getNodeDetailLocation(node)"
+            :target="props.openInNewTab ? '_blank' : undefined"
+            :rel="props.openInNewTab ? 'noopener noreferrer' : undefined"
+            class="node-list-stretched-link"
+            :aria-label="`查看 ${node.name} 详情`"
+          />
           <div class="node-list-item" :style="gridStyle">
             <template v-for="col in columns" :key="col">
               <!-- 在线状态指示器 -->
@@ -396,7 +416,7 @@ const columnTitles: Record<string, string> = {
                         quaternary
                         circle
                         size="tiny"
-                        class="p-1!"
+                        class="node-detail-interactive p-1!"
                         @click.stop="openPingChart(node)"
                       >
                         <template #icon>
@@ -531,7 +551,7 @@ const columnTitles: Record<string, string> = {
                 <div class="traffic-cell">
                   <NTooltip :trigger="isTouchDevice ? 'click' : 'hover'">
                     <template #trigger>
-                      <div class="flex flex-col gap-0.5 w-full" :class="{ 'cursor-help': !isTouchDevice }" @click.stop>
+                      <div class="node-detail-interactive flex flex-col gap-0.5 w-full" :class="{ 'cursor-help': !isTouchDevice }" @click.stop>
                         <div class="text-[11px] flex gap-1 items-center" :style="{ fontFamily: appStore.numberFontFamily }">
                           <NText v-if="showTrafficProgress(node)">
                             {{ getTrafficUsedPercentage(node).toFixed(1) }}%
@@ -647,6 +667,24 @@ html.dark .node-list-glass--enabled :deep(.n-list-item) {
 .node-list-row {
   position: relative;
   overflow: hidden;
+}
+
+.node-list-stretched-link {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  color: inherit;
+  text-decoration: none;
+}
+
+.node-list-stretched-link:focus-visible {
+  outline: 2px solid var(--n-color-target, #18a058);
+  outline-offset: -2px;
+}
+
+.node-detail-interactive {
+  position: relative;
+  z-index: 4;
 }
 
 .node-offline-overlay {

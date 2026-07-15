@@ -155,8 +155,18 @@ const canUseRenewalStats = computed(() => {
     && (appStore.isLoggedIn || appStore.allowGuestRenewalStats)
 })
 
+function getNodeDetailLocation(node: typeof nodesStore.nodes[number]) {
+  return { name: 'instance-detail' as const, params: { id: node.uuid } }
+}
+
 function handleNodeClick(node: typeof nodesStore.nodes[number]) {
-  router.push({ name: 'instance-detail', params: { id: node.uuid } })
+  if (appStore.openNodeInNewTab) {
+    const href = router.resolve(getNodeDetailLocation(node)).href
+    window.open(href, '_blank', 'noopener,noreferrer')
+    return
+  }
+
+  router.push(getNodeDetailLocation(node))
 }
 
 function openRenewalStats() {
@@ -237,6 +247,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
             <AppIcon name="view-list" class="view-selector-icon" />
           </NButton>
           <NButton
+            v-if="appStore.enableEarthView"
             class="view-selector-item"
             :class="{ 'view-selector-item--active': appStore.nodeViewMode === 'earth' }"
             :aria-pressed="appStore.nodeViewMode === 'earth'"
@@ -253,12 +264,25 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
           <NTabPane v-for="group in groups" :key="group.name" :tab="group.tab" :name="group.name">
             <!-- Card 视图 -->
             <div v-if="nodeList.length !== 0 && appStore.nodeViewMode === 'card'" class="gap-4 grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
-              <NodeCard v-for="node in nodeList" :key="node.uuid" :node="node" @click="handleNodeClick(node)" />
+              <NodeCard
+                v-for="node in nodeList"
+                :key="node.uuid"
+                :node="node"
+                :detail-to="appStore.useNodeDetailLink ? getNodeDetailLocation(node) : undefined"
+                :open-in-new-tab="appStore.openNodeInNewTab"
+                @click="handleNodeClick(node)"
+              />
             </div>
             <!-- List 视图 -->
-            <NodeList v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'" :nodes="nodeList" @click="handleNodeClick" />
+            <NodeList
+              v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'"
+              :nodes="nodeList"
+              :use-detail-link="appStore.useNodeDetailLink"
+              :open-in-new-tab="appStore.openNodeInNewTab"
+              @click="handleNodeClick"
+            />
             <!-- Earth 视图 -->
-            <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
+            <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.enableEarthView && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
             <!-- 空状态 -->
             <div v-else class="text-gray-500 text-center">
               <NEmpty description="暂无节点" />
@@ -269,12 +293,25 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         <template v-else>
           <!-- Card 视图 -->
           <div v-if="nodeList.length !== 0 && appStore.nodeViewMode === 'card'" class="gap-4 grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
-            <NodeCard v-for="node in nodeList" :key="node.uuid" :node="node" @click="handleNodeClick(node)" />
+            <NodeCard
+              v-for="node in nodeList"
+              :key="node.uuid"
+              :node="node"
+              :detail-to="appStore.useNodeDetailLink ? getNodeDetailLocation(node) : undefined"
+              :open-in-new-tab="appStore.openNodeInNewTab"
+              @click="handleNodeClick(node)"
+            />
           </div>
           <!-- List 视图 -->
-          <NodeList v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'" :nodes="nodeList" @click="handleNodeClick" />
+          <NodeList
+            v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'list'"
+            :nodes="nodeList"
+            :use-detail-link="appStore.useNodeDetailLink"
+            :open-in-new-tab="appStore.openNodeInNewTab"
+            @click="handleNodeClick"
+          />
           <!-- Earth 视图 -->
-          <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
+          <NodeEarthView v-else-if="nodeList.length !== 0 && appStore.enableEarthView && appStore.nodeViewMode === 'earth'" :nodes="nodeList" @click="handleNodeClick" />
           <!-- 空状态 -->
           <div v-else class="text-gray-500 text-center">
             <NEmpty description="暂无节点" />

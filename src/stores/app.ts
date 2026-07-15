@@ -82,12 +82,25 @@ const useAppStore = defineStore('app', () => {
   // 使用 null 表示未设置，等待主题配置加载后决定
   const storedViewMode = useStorageAsync<NodeViewMode | null>('nodeViewMode', null, localStorage)
 
+  // 计算属性：是否启用地球视图（关闭后隐藏入口并禁止渲染）
+  const enableEarthView = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.enableEarthView === 'boolean') {
+      return settings.enableEarthView
+    }
+    return true
+  })
+
   // 计算属性：从主题配置获取默认视图模式
   const defaultViewMode = computed<NodeViewMode>(() => {
     const settings = publicSettings.value?.theme_settings
     if (settings && typeof settings.defaultViewMode === 'string') {
       const mode = settings.defaultViewMode
       if (mode === 'card' || mode === 'list' || mode === 'earth') {
+        // 地球视图被关闭时，默认 earth 回退到卡片
+        if (mode === 'earth' && !enableEarthView.value) {
+          return 'card'
+        }
         return mode
       }
     }
@@ -96,7 +109,10 @@ const useAppStore = defineStore('app', () => {
 
   // 校验视图模式是否为合法值
   function isValidViewMode(value: string | null): value is NodeViewMode {
-    return value === 'card' || value === 'list' || value === 'earth'
+    if (value === 'earth') {
+      return enableEarthView.value
+    }
+    return value === 'card' || value === 'list'
   }
 
   // 当前实际使用的视图模式
@@ -106,9 +122,17 @@ const useAppStore = defineStore('app', () => {
       if (storedViewMode.value !== null && isValidViewMode(storedViewMode.value)) {
         return storedViewMode.value
       }
+      // 本地曾选 earth 但现已关闭：回退默认
+      if (storedViewMode.value === 'earth' && !enableEarthView.value) {
+        return defaultViewMode.value
+      }
       return defaultViewMode.value
     },
     set: (val) => {
+      if (val === 'earth' && !enableEarthView.value) {
+        storedViewMode.value = 'card'
+        return
+      }
       storedViewMode.value = val
     },
   })
@@ -360,6 +384,27 @@ const useAppStore = defineStore('app', () => {
     }
     return true
   })
+
+  // 计算属性：节点详情是否使用真实链接（支持中键/Ctrl 打开新标签）
+  const nodeDetailAsLink = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.nodeDetailAsLink === 'boolean') {
+      return settings.nodeDetailAsLink
+    }
+    return false
+  })
+
+  // 计算属性：左键是否在新标签页打开节点详情
+  const openNodeInNewTab = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.openNodeInNewTab === 'boolean') {
+      return settings.openNodeInNewTab
+    }
+    return false
+  })
+
+  // 左键新标签依赖真实 href，因此任一开关启用时都使用链接模式
+  const useNodeDetailLink = computed<boolean>(() => nodeDetailAsLink.value || openNodeInNewTab.value)
 
   // 计算属性：首页是否显示续费统计
   const showRenewalStats = computed<boolean>(() => {
@@ -776,6 +821,7 @@ const useAppStore = defineStore('app', () => {
     nodeSelectedGroup,
     nodeViewMode,
     defaultViewMode,
+    enableEarthView,
     rpcTransportMode,
     showLoginButton,
     offlineNodesLast,
@@ -793,6 +839,9 @@ const useAppStore = defineStore('app', () => {
     listStatusStyle,
     listTagsStyle,
     showPingChartButton,
+    nodeDetailAsLink,
+    openNodeInNewTab,
+    useNodeDetailLink,
     showRenewalStats,
     allowGuestRenewalStats,
     tagsInSeparateRow,
