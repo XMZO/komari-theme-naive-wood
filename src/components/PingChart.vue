@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import type { MetricDefinition, MetricQueryResponse, PingMetricTaskStats, PublicPingTask } from '@/utils/rpc'
+import { useIntervalFn } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { NButton, NEmpty, NSpin, NSwitch, NTooltip } from 'naive-ui'
-import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import VChart from 'vue-echarts'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
@@ -27,6 +28,7 @@ const appStore = useAppStore()
 const isDark = computed(() => appStore.isDark)
 // 使用共享的 RPC 实例，避免重复创建连接
 const rpc = getSharedRpc()
+const PING_HISTORY_REFRESH_INTERVAL_MS = 60_000
 
 // 图表主题相关颜色
 const chartThemeColors = computed(() => ({
@@ -181,9 +183,11 @@ const error = ref<string | null>(null)
 // 任务选择
 const selectedTaskIds = ref<string[]>([])
 const cutPeak = ref(false)
+let selectionTouched = false
 
 const chartMargin = { top: 12, right: 24, bottom: 52, left: 56 }
 let fetchSequence = 0
+let backgroundRefreshInFlight = false
 
 // ==================== 数据获取 ====================
 
@@ -276,6 +280,7 @@ function buildMetricPayload(
   stats: PingMetricTaskStats[],
   publicTasks: PublicPingTask[] | null,
   retentionHours: number,
+  uuid: string,
 ): PingDataPayload {
   interface MetricBucket {
     taskID: string
@@ -368,7 +373,7 @@ function buildMetricPayload(
 
   if (publicTasks !== null) {
     for (const task of publicTasks) {
-      if (!Array.isArray(task.clients) || !task.clients.includes(props.uuid))
+      if (!Array.isArray(task.clients) || !task.clients.includes(uuid))
         continue
       appendTask(String(task.id), task)
     }
@@ -436,7 +441,7 @@ async function fetchPublicPingTasksIfSupported(): Promise<PublicPingTask[] | nul
   }
 }
 
-async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null> {
+async function fetchMetricPayload(uuid: string, hours: number): Promise<PingDataPayload | null> {
   const definitions = await getMetricDefinitions()
   if (definitions === null)
     return null
@@ -448,7 +453,7 @@ async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null
   }
 
   const [statsResponse, publicTasks] = await Promise.all([
-    getPingMetricStatsIfSupported({ entity_id: props.uuid, hours, max_points: 600 }),
+    getPingMetricStatsIfSupported({ entity_id: uuid, hours, max_points: 600 }),
     fetchPublicPingTasksIfSupported(),
   ])
 
@@ -459,14 +464,15 @@ async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null
     .map(stat => stat.interval)
     .filter((interval): interval is number => typeof interval === 'number' && Number.isFinite(interval) && interval > 0)
   const configuredIntervals = (publicTasks ?? [])
-    .filter(task => Array.isArray(task.clients) && task.clients.includes(props.uuid))
+    .filter(task => Array.isArray(task.clients) && task.clients.includes(uuid))
     .map(task => task.interval)
     .filter(interval => Number.isFinite(interval) && interval > 0)
   const taskIntervals = statsIntervals.length > 0 ? statsIntervals : configuredIntervals
-  const sampleInterval = taskIntervals.length > 0 ? Math.max(...taskIntervals) : 60
+  // 混合周期时保留最快任务的连续曲线；较慢任务的真实孤立点由 symbol 展示。
+  const sampleInterval = taskIntervals.length > 0 ? Math.min(...taskIntervals) : 60
   const query = await queryMetricsIfSupported({
     metric_keys: metricKeys,
-    entity_id: props.uuid,
+    entity_id: uuid,
     hours,
     downsample: true,
     fill_empty: true,
@@ -481,15 +487,15 @@ async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null
   if (query === null)
     return null
 
-  return buildMetricPayload(query, statsResponse.stats, publicTasks, retentionHours)
+  return buildMetricPayload(query, statsResponse.stats, publicTasks, retentionHours, uuid)
 }
 
-async function fetchLegacyPayload(hours: number): Promise<PingDataPayload> {
+async function fetchLegacyPayload(uuid: string, hours: number): Promise<PingDataPayload> {
   if (hours <= 0)
     return { rows: [], tasks: [], retentionHours: null }
 
   const result = await rpc.getClient().call<LegacyPingRecordsResponse>('common:getRecords', {
-    uuid: props.uuid,
+    uuid,
     type: 'ping',
     hours,
   })
@@ -499,40 +505,62 @@ async function fetchLegacyPayload(hours: number): Promise<PingDataPayload> {
 function syncSelectedTasks(nextTasks: TaskInfo[]): void {
   const available = new Set(nextTasks.map(task => task.id))
   const selected = selectedTaskIds.value.filter(id => available.has(id))
-  selectedTaskIds.value = selected.length > 0 ? selected : nextTasks.map(task => task.id)
+  selectedTaskIds.value = selectionTouched ? selected : nextTasks.map(task => task.id)
 }
 
-async function fetchRecords() {
-  if (!props.uuid)
+async function fetchRecords(options: { background?: boolean } = {}): Promise<void> {
+  const background = options.background === true
+  const uuid = props.uuid
+  if (!uuid)
+    return
+  if (background && (backgroundRefreshInFlight || loading.value))
     return
 
-  const requestID = ++fetchSequence
+  if (background) {
+    backgroundRefreshInFlight = true
+  }
 
-  loading.value = true
-  error.value = null
+  const requestID = ++fetchSequence
+  const hours = selectedHours.value
+  const isRequestCurrent = () => requestID === fetchSequence
+    && uuid === props.uuid
+    && hours === selectedHours.value
+
+  if (!background) {
+    loading.value = true
+    error.value = null
+  }
 
   try {
-    const hours = selectedHours.value
-    const metricPayload = await fetchMetricPayload(hours)
-    const payload = metricPayload ?? await fetchLegacyPayload(hours)
-    if (requestID !== fetchSequence)
+    const metricPayload = await fetchMetricPayload(uuid, hours)
+    const payload = metricPayload ?? await fetchLegacyPayload(uuid, hours)
+    if (!isRequestCurrent())
       return
 
+    error.value = null
     metricRetentionHours.value = payload.retentionHours
     pingRows.value = payload.rows
     tasks.value = payload.tasks
     syncSelectedTasks(payload.tasks)
   }
   catch (err) {
-    if (requestID !== fetchSequence)
+    if (!isRequestCurrent())
       return
-    error.value = err instanceof Error ? err.message : '获取数据失败'
-    pingRows.value = []
-    tasks.value = []
+    if (background) {
+      console.error('[PingChart] Background refresh failed:', err)
+    }
+    else {
+      error.value = err instanceof Error ? err.message : '获取数据失败'
+      pingRows.value = []
+      tasks.value = []
+    }
   }
   finally {
-    if (requestID === fetchSequence) {
+    if (!background && requestID === fetchSequence) {
       loading.value = false
+    }
+    if (background) {
+      backgroundRefreshInFlight = false
     }
   }
 }
@@ -650,6 +678,7 @@ const selectedTasks = computed(() => {
 
 // 切换任务选中状态
 function toggleTask(taskId: string) {
+  selectionTouched = true
   if (selectedTaskIds.value.includes(taskId)) {
     selectedTaskIds.value = selectedTaskIds.value.filter(id => id !== taskId)
   }
@@ -659,10 +688,12 @@ function toggleTask(taskId: string) {
 }
 
 function showAllTasks() {
+  selectionTouched = true
   selectedTaskIds.value = tasks.value.map(t => t.id)
 }
 
 function hideAllTasks() {
+  selectionTouched = true
   selectedTaskIds.value = []
 }
 
@@ -708,12 +739,22 @@ const pingChartOption = computed(() => {
   // 构建 series，确保颜色与卡片一致
   const series = taskList.map((task) => {
     const color = getTaskColor(task.id)
+    const seriesData = data.map(d => d[task.id] as number | null ?? null)
+    const hasFiniteValue = seriesData.some(value => typeof value === 'number' && Number.isFinite(value))
+    const hasLineSegment = seriesData.some((value, index) => {
+      const nextValue = seriesData[index + 1]
+      return typeof value === 'number'
+        && Number.isFinite(value)
+        && typeof nextValue === 'number'
+        && Number.isFinite(nextValue)
+    })
     return {
       name: task.name,
       type: 'line' as const,
-      data: data.map(d => d[task.id] as number | null ?? null),
+      data: seriesData,
       smooth: cutPeak.value ? 0.6 : 0.4,
-      showSymbol: false,
+      showSymbol: hasFiniteValue && !hasLineSegment,
+      symbolSize: 6,
       connectNulls: false,
       lineStyle: { width: 2.5, color, cap: 'round' as const },
       itemStyle: { color }, // 确保 symbol 颜色一致
@@ -815,15 +856,17 @@ const pingChartOption = computed(() => {
 // ==================== 生命周期 ====================
 
 watch(selectedView, () => {
+  selectionTouched = false
   selectedTaskIds.value = []
-  fetchRecords()
+  void fetchRecords()
 })
 
 watch(() => props.uuid, () => {
+  selectionTouched = false
   pingRows.value = []
   tasks.value = []
   selectedTaskIds.value = []
-  fetchRecords()
+  void fetchRecords()
 })
 
 onMounted(() => {
@@ -831,8 +874,18 @@ onMounted(() => {
   if (firstView && !selectedView.value) {
     selectedView.value = firstView.label
   }
-  fetchRecords()
+  void fetchRecords()
 })
+
+onBeforeUnmount(() => {
+  fetchSequence++
+})
+
+useIntervalFn(
+  () => void fetchRecords({ background: true }),
+  PING_HISTORY_REFRESH_INTERVAL_MS,
+  { immediate: true, immediateCallback: false },
+)
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 </script>

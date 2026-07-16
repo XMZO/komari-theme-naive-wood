@@ -303,16 +303,16 @@ const useNodesStore = defineStore('nodes', () => {
    * 更新节点状态（实时更新）
    */
   function updateNodeStatuses(statuses: Record<string, NodeStatus>): void {
-    Object.entries(statuses).forEach(([uuid, status]) => {
-      const index = nodes.value.findIndex(n => n.uuid === uuid)
-      if (index === -1)
-        return
+    nodes.value = nodes.value.map((node) => {
+      const status = statuses[node.uuid]
+      if (status) {
+        return updateNodeStatus(node, extractStatusData(status))
+      }
 
-      const node = nodes.value[index]
-      if (!node)
-        return
-
-      nodes.value[index] = updateNodeStatus(node, extractStatusData(status))
+      // 这里应用的是无筛选的完整 latest-report 快照。节点缺失表示当前没有它的
+      // latest report（例如后端刚重启、尚未收到首报），不能继续沿用旧的 online=true。
+      // 最后一次指标值仍保留供界面展示。
+      return node.online ? { ...node, online: false } : node
     })
   }
 

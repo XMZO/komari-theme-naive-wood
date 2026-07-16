@@ -114,52 +114,123 @@ let metricDefinitionsSupported: boolean | null = null
 let metricQuerySupported: boolean | null = null
 let pingMetricStatsSupported: boolean | null = null
 let metricDefinitions: MetricDefinition[] | null = null
-let metricDefinitionsPromise: Promise<MetricDefinition[] | null> | null = null
+let metricDefinitionsLoadedAt = 0
+let metricCompatibilityGeneration = 0
+
+interface MetricDefinitionsRequest {
+  generation: number
+  promise: Promise<MetricDefinition[] | null>
+}
+
+let metricDefinitionsRequest: MetricDefinitionsRequest | null = null
+
+const METRIC_COMPATIBILITY_CACHE_TTL_MS = 60_000
+
+function isMetricCompatibilityCacheFresh(): boolean {
+  return metricDefinitionsLoadedAt > 0
+    && Date.now() - metricDefinitionsLoadedAt < METRIC_COMPATIBILITY_CACHE_TTL_MS
+}
 
 /**
  * 读取逐指标定义。仅在服务端明确返回 MethodNotFound 时回退旧兼容字段；
  * 网络、鉴权或数据库错误会继续抛出，避免用旧接口掩盖真实故障。
  */
 export async function getMetricDefinitions(force = false): Promise<MetricDefinition[] | null> {
-  if (!force && metricDefinitions) {
-    return metricDefinitions
+  if (!force && isMetricCompatibilityCacheFresh()) {
+    return metricDefinitionsSupported === false ? null : metricDefinitions
   }
-  if (!force && metricDefinitionsSupported === false) {
-    return null
-  }
-  if (!force && metricDefinitionsPromise) {
-    return metricDefinitionsPromise
+  if (metricDefinitionsRequest) {
+    const activeRequest = metricDefinitionsRequest
+    try {
+      const definitions = await activeRequest.promise
+      if (activeRequest.generation !== metricCompatibilityGeneration) {
+        if (metricDefinitionsRequest === activeRequest) {
+          metricDefinitionsRequest = null
+        }
+        return getMetricDefinitions()
+      }
+      return definitions
+    }
+    catch (error) {
+      if (activeRequest.generation !== metricCompatibilityGeneration) {
+        if (metricDefinitionsRequest === activeRequest) {
+          metricDefinitionsRequest = null
+        }
+        return getMetricDefinitions()
+      }
+      throw error
+    }
   }
 
-  metricDefinitionsPromise = (async () => {
+  const requestGeneration = ++metricCompatibilityGeneration
+  const request = (async () => {
     try {
       const definitions = await getSharedRpc().listMetricDefinitions()
-      metricDefinitionsSupported = true
-      metricDefinitions = definitions
+      if (requestGeneration === metricCompatibilityGeneration) {
+        metricDefinitionsSupported = true
+        metricQuerySupported = null
+        pingMetricStatsSupported = null
+        metricDefinitions = definitions
+        metricDefinitionsLoadedAt = Date.now()
+      }
       return definitions
     }
     catch (error) {
       if (isRpcMethodUnavailable(error)) {
-        metricDefinitionsSupported = false
-        metricDefinitions = null
+        if (requestGeneration === metricCompatibilityGeneration) {
+          metricDefinitionsSupported = false
+          metricQuerySupported = null
+          pingMetricStatsSupported = null
+          metricDefinitions = null
+          metricDefinitionsLoadedAt = Date.now()
+        }
         return null
       }
       throw error
     }
-    finally {
-      metricDefinitionsPromise = null
-    }
   })()
+  const requestState: MetricDefinitionsRequest = {
+    generation: requestGeneration,
+    promise: request,
+  }
+  metricDefinitionsRequest = requestState
 
-  return metricDefinitionsPromise
+  try {
+    try {
+      const definitions = await request
+      if (requestGeneration !== metricCompatibilityGeneration) {
+        if (metricDefinitionsRequest === requestState) {
+          metricDefinitionsRequest = null
+        }
+        return getMetricDefinitions()
+      }
+      return definitions
+    }
+    catch (error) {
+      if (requestGeneration !== metricCompatibilityGeneration) {
+        if (metricDefinitionsRequest === requestState) {
+          metricDefinitionsRequest = null
+        }
+        return getMetricDefinitions()
+      }
+      throw error
+    }
+  }
+  finally {
+    if (metricDefinitionsRequest === requestState) {
+      metricDefinitionsRequest = null
+    }
+  }
 }
 
 export function resetMetricCompatibilityCache(): void {
+  metricCompatibilityGeneration++
   metricDefinitionsSupported = null
   metricQuerySupported = null
   pingMetricStatsSupported = null
   metricDefinitions = null
-  metricDefinitionsPromise = null
+  metricDefinitionsRequest = null
+  metricDefinitionsLoadedAt = 0
 }
 
 export function getAvailableMetricKeys(definitions: MetricDefinition[], desiredKeys: readonly string[]): string[] {
@@ -197,19 +268,26 @@ export function getMetricRetentionHours(definitions: MetricDefinition[], metricK
 }
 
 export async function queryMetricsIfSupported(params: MetricQueryParams): Promise<MetricQueryResponse | null> {
-  if (metricDefinitionsSupported === null) {
+  if (metricDefinitionsSupported === null || !isMetricCompatibilityCacheFresh()) {
     await getMetricDefinitions()
   }
   if (metricDefinitionsSupported === false || metricQuerySupported === false) {
     return null
   }
 
+  const requestGeneration = metricCompatibilityGeneration
   try {
     const response = await getSharedRpc().queryMetrics(params)
+    if (requestGeneration !== metricCompatibilityGeneration) {
+      return queryMetricsIfSupported(params)
+    }
     metricQuerySupported = true
     return response
   }
   catch (error) {
+    if (requestGeneration !== metricCompatibilityGeneration) {
+      return queryMetricsIfSupported(params)
+    }
     if (isRpcMethodUnavailable(error)) {
       metricQuerySupported = false
       return null
@@ -219,19 +297,26 @@ export async function queryMetricsIfSupported(params: MetricQueryParams): Promis
 }
 
 export async function getPingMetricStatsIfSupported(params: PingMetricStatsParams): Promise<PingMetricStatsResponse | null> {
-  if (metricDefinitionsSupported === null) {
+  if (metricDefinitionsSupported === null || !isMetricCompatibilityCacheFresh()) {
     await getMetricDefinitions()
   }
   if (metricDefinitionsSupported === false || pingMetricStatsSupported === false) {
     return null
   }
 
+  const requestGeneration = metricCompatibilityGeneration
   try {
     const response = await getSharedRpc().getPingMetricStats(params)
+    if (requestGeneration !== metricCompatibilityGeneration) {
+      return getPingMetricStatsIfSupported(params)
+    }
     pingMetricStatsSupported = true
     return response
   }
   catch (error) {
+    if (requestGeneration !== metricCompatibilityGeneration) {
+      return getPingMetricStatsIfSupported(params)
+    }
     if (isRpcMethodUnavailable(error)) {
       pingMetricStatsSupported = false
       return null

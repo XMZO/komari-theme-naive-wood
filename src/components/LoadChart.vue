@@ -4,11 +4,12 @@ import type { MetricDefinition, StatusRecord } from '@/utils/rpc'
 import { useIntervalFn } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { NButton, NCard, NEmpty, NSpin } from 'naive-ui'
-import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import VChart from 'vue-echarts'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
+import { getSharedApi } from '@/utils/api'
 import { formatBytes, formatBytesSplit } from '@/utils/helper'
 import {
   getEnabledMetricKeys,
@@ -183,14 +184,25 @@ const historyIntervalSeconds = ref<number | null>(null)
 const loading = ref(false)
 const isInitialLoad = ref(true) // 是否为首次加载（用于控制实时模式下的 NSpin 显示）
 const error = ref<string | null>(null)
+const metricDefinitionsError = ref<string | null>(null)
+let fetchSequence = 0
+let backgroundFetchInFlight = false
+let disposed = false
 
 // 节点信息
 const nodeInfo = computed(() => nodesStore.nodesByUuid.get(props.uuid))
 
 // RPC 客户端
 const rpc = getSharedRpc()
+const api = getSharedApi()
 
 // ==================== 数据获取 ====================
+
+interface LoadDataPayload {
+  records: RecordFormat[]
+  source: 'metric' | 'legacy'
+  intervalSeconds: number | null
+}
 
 function statusToRecordFormat(records: StatusRecord[], connectionsIncludeUdp = false): RecordFormat[] {
   return records.map(r => ({
@@ -222,111 +234,163 @@ function statusToRecordFormat(records: StatusRecord[], connectionsIncludeUdp = f
   }))
 }
 
-async function fetchRecentData() {
-  if (!props.uuid)
-    return
-
-  // 只在首次加载时显示 loading
-  if (isInitialLoad.value) {
-    loading.value = true
-  }
-  error.value = null
-
-  try {
-    const result = await rpc.getNodeRecentStatus(props.uuid)
-    const records = result?.records || []
-    records.sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
-    const maxLength = 150
-    remoteData.value = statusToRecordFormat(records.slice(-maxLength), true)
-    historyIntervalSeconds.value = null
-  }
-  catch (err) {
-    error.value = err instanceof Error ? err.message : '获取数据失败'
-    remoteData.value = []
-  }
-  finally {
-    loading.value = false
-    isInitialLoad.value = false
+async function fetchRecentData(uuid: string): Promise<LoadDataPayload> {
+  const result = await rpc.getNodeRecentStatus(uuid)
+  const records = [...(result?.records ?? [])]
+  records.sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
+  const maxLength = 150
+  return {
+    records: statusToRecordFormat(records.slice(-maxLength), true),
+    source: 'legacy',
+    intervalSeconds: null,
   }
 }
 
-async function fetchHistoryData() {
-  if (!props.uuid)
-    return
-
-  const hours = selectedHours.value || 4
-
-  loading.value = true
-  error.value = null
-
-  try {
-    if (Array.isArray(metricDefinitions.value)) {
-      const metricKeys = getEnabledMetricKeys(metricDefinitions.value, LOAD_HISTORY_METRIC_KEYS)
-      if (metricKeys.length === 0) {
-        historySource.value = 'metric'
-        remoteData.value = []
-        return
-      }
-
-      const metricResponse = await queryMetricsIfSupported({
-        metric_keys: metricKeys,
-        entity_id: props.uuid,
-        hours,
-        downsample: true,
-        fill_empty: true,
-        max_points: getMetricQueryMaxPoints(hours, LOAD_HISTORY_SAMPLE_INTERVAL_SECONDS),
-        aggregation: 'avg',
-        aggregation_by_metric: {
-          [METRIC_KEYS.ramTotal]: 'last',
-          [METRIC_KEYS.swapTotal]: 'last',
-          [METRIC_KEYS.diskTotal]: 'last',
-        },
-      })
-      if (metricResponse) {
-        historySource.value = 'metric'
-        remoteData.value = mergeLoadMetricSeries(metricResponse, props.uuid)
-        const intervals = metricResponse.series
-          .map(series => series.interval_seconds)
-          .filter((interval): interval is number => typeof interval === 'number' && interval > 0)
-        historyIntervalSeconds.value = intervals.length > 0 ? Math.min(...intervals) : null
-        return
-      }
+async function fetchHistoryData(
+  uuid: string,
+  hours: number,
+  definitions: MetricDefinition[] | null | undefined,
+): Promise<LoadDataPayload> {
+  if (Array.isArray(definitions)) {
+    const metricKeys = getEnabledMetricKeys(definitions, LOAD_HISTORY_METRIC_KEYS)
+    if (metricKeys.length === 0) {
+      return { records: [], source: 'metric', intervalSeconds: null }
     }
 
-    historySource.value = 'legacy'
-    historyIntervalSeconds.value = null
-    const apiBase = import.meta.env.VITE_API_BASE || '/api'
-    const response = await fetch(`${apiBase}/records/load?uuid=${props.uuid}&hours=${hours}`, {
-      credentials: 'include',
+    const metricResponse = await queryMetricsIfSupported({
+      metric_keys: metricKeys,
+      entity_id: uuid,
+      hours,
+      downsample: true,
+      fill_empty: true,
+      max_points: getMetricQueryMaxPoints(hours, LOAD_HISTORY_SAMPLE_INTERVAL_SECONDS),
+      aggregation: 'avg',
+      aggregation_by_metric: {
+        [METRIC_KEYS.ramTotal]: 'last',
+        [METRIC_KEYS.swapTotal]: 'last',
+        [METRIC_KEYS.diskTotal]: 'last',
+      },
     })
-    if (!response.ok)
-      throw new Error(`HTTP error: ${response.status}`)
-
-    const resp = await response.json()
-    const records: StatusRecord[] = resp.data?.records || []
-
-    // 按时间排序
-    records.sort((a: StatusRecord, b: StatusRecord) =>
-      dayjs(a.time).valueOf() - dayjs(b.time).valueOf(),
-    )
-
-    remoteData.value = statusToRecordFormat(records)
+    if (metricResponse) {
+      const intervals = metricResponse.series
+        .map(series => series.interval_seconds)
+        .filter((interval): interval is number => typeof interval === 'number' && interval > 0)
+      return {
+        records: mergeLoadMetricSeries(metricResponse, uuid),
+        source: 'metric',
+        intervalSeconds: intervals.length > 0 ? Math.min(...intervals) : null,
+      }
+    }
   }
-  catch (err) {
-    error.value = err instanceof Error ? err.message : '获取数据失败'
-    remoteData.value = []
+
+  if (definitions === undefined) {
+    throw new Error('指标定义尚未加载，无法安全选择历史记录接口')
   }
-  finally {
-    loading.value = false
+
+  const response = await api.getLoadRecords(uuid, hours)
+  const records = [...response.records]
+  records.sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
+  return {
+    records: statusToRecordFormat(records),
+    source: 'legacy',
+    intervalSeconds: null,
   }
 }
 
-async function fetchData() {
-  if (isRealtime.value) {
-    await fetchRecentData()
+async function fetchData(options: { background?: boolean } = {}): Promise<void> {
+  const background = options.background === true
+  const uuid = props.uuid
+  if (!uuid) {
+    fetchSequence++
+    remoteData.value = []
+    loading.value = false
+    return
   }
-  else {
-    await fetchHistoryData()
+  if (background && (backgroundFetchInFlight || loading.value))
+    return
+
+  if (background) {
+    backgroundFetchInFlight = true
+  }
+
+  const requestID = ++fetchSequence
+  const realtime = isRealtime.value
+  const hours = selectedHours.value ?? 4
+  let definitions = metricDefinitions.value
+  const isRequestCurrent = () => !disposed
+    && requestID === fetchSequence
+    && uuid === props.uuid
+    && realtime === isRealtime.value
+    && (realtime || hours === (selectedHours.value ?? 4))
+
+  if (!background && (!realtime || isInitialLoad.value)) {
+    loading.value = true
+  }
+  if (!background) {
+    error.value = null
+  }
+
+  try {
+    if (!realtime && definitions === undefined) {
+      definitions = await getMetricDefinitions()
+      if (!isRequestCurrent())
+        return
+      metricDefinitions.value = definitions
+    }
+
+    const payload = realtime
+      ? await fetchRecentData(uuid)
+      : await fetchHistoryData(uuid, hours, definitions)
+    if (!isRequestCurrent())
+      return
+
+    error.value = null
+    remoteData.value = payload.records
+    historySource.value = payload.source
+    historyIntervalSeconds.value = payload.intervalSeconds
+  }
+  catch (err) {
+    if (!isRequestCurrent())
+      return
+    if (background) {
+      console.error('[LoadChart] Background refresh failed:', err)
+    }
+    else {
+      error.value = err instanceof Error ? err.message : '获取数据失败'
+      remoteData.value = []
+    }
+  }
+  finally {
+    if (!background && requestID === fetchSequence) {
+      loading.value = false
+      if (realtime) {
+        isInitialLoad.value = false
+      }
+    }
+    if (background) {
+      backgroundFetchInFlight = false
+    }
+  }
+}
+
+async function refreshMetricDefinitions(force = false, refreshHistory = false): Promise<void> {
+  try {
+    const definitions = await getMetricDefinitions(force)
+    if (disposed)
+      return
+    metricDefinitions.value = definitions
+    metricDefinitionsError.value = null
+    if (refreshHistory && !isRealtime.value) {
+      await fetchData({ background: true })
+    }
+  }
+  catch (definitionError) {
+    if (!disposed && metricDefinitions.value === undefined) {
+      metricDefinitionsError.value = definitionError instanceof Error
+        ? definitionError.message
+        : '未知错误'
+    }
+    console.error('[LoadChart] Failed to load metric definitions:', definitionError)
   }
 }
 
@@ -915,9 +979,20 @@ const processChartOption = computed(() => ({
 
 // 使用 VueUse 的 useIntervalFn 自动管理定时器
 useIntervalFn(
-  () => fetchData(),
+  () => {
+    if (isRealtime.value) {
+      void fetchData({ background: true })
+    }
+  },
   dataUpdateInterval,
-  { immediate: false },
+  { immediate: true, immediateCallback: false },
+)
+
+// 定期重新探测指标能力和 retention；历史视图最多每分钟刷新一次。
+useIntervalFn(
+  () => void refreshMetricDefinitions(true, true),
+  60_000,
+  { immediate: true, immediateCallback: false },
 )
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
@@ -926,7 +1001,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 
 watch(selectedView, () => {
   isInitialLoad.value = true // 切换视图时重置首次加载状态
-  fetchData()
+  void fetchData()
 })
 
 watch(availableViews, (views) => {
@@ -938,19 +1013,16 @@ watch(availableViews, (views) => {
 watch(() => props.uuid, () => {
   remoteData.value = []
   isInitialLoad.value = true // 切换节点时重置首次加载状态
-  fetchData()
+  void fetchData()
 })
 
 onMounted(async () => {
-  const definitionsPromise = getMetricDefinitions()
-    .then((definitions) => {
-      metricDefinitions.value = definitions
-    })
-    .catch((definitionError) => {
-      console.error('[LoadChart] Failed to load metric definitions:', definitionError)
-    })
+  await Promise.all([fetchData(), refreshMetricDefinitions()])
+})
 
-  await Promise.all([fetchData(), definitionsPromise])
+onBeforeUnmount(() => {
+  disposed = true
+  fetchSequence++
 })
 </script>
 
@@ -967,6 +1039,10 @@ onMounted(async () => {
       >
         {{ view.label }}
       </NButton>
+    </div>
+
+    <div v-if="metricDefinitionsError" class="text-xs text-red-500 text-center">
+      历史指标能力加载失败：{{ metricDefinitionsError }}
     </div>
 
     <!-- 内容区域 -->

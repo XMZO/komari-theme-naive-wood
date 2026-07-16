@@ -28,6 +28,10 @@ const DEFAULT_CONFIG: Required<InitConfig> = {
 
 type InitState = 'idle' | 'bootstrapping' | 'awaiting-auth' | 'running' | 'destroyed'
 
+function isRecordResponse(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
 class InitManager {
   private config: Required<InitConfig>
   private rpc: KomariRpc
@@ -340,8 +344,7 @@ class InitManager {
 
     this.isPolling = true
     try {
-      const [, clientsResult, statusesResult] = await Promise.all([
-        this.rpc.ping(),
+      const [clientsResult, statusesResult] = await Promise.allSettled([
         this.rpc.getNodes() as Promise<Record<string, Client>>,
         this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
       ])
@@ -350,10 +353,61 @@ class InitManager {
         || this.state !== 'running') {
         return
       }
-      this.nodesStore.updateNodeClients(clientsResult)
-      this.nodesStore.updateNodeStatuses(statusesResult)
-      this.postFailureCount = 0
-      this.appStore.connectionError = false
+
+      const failures: unknown[] = []
+      let clients: Record<string, Client> | null = null
+      let statuses: Record<string, NodeStatus> | null = null
+
+      if (clientsResult.status === 'rejected') {
+        failures.push(clientsResult.reason)
+      }
+      else if (isRecordResponse(clientsResult.value)) {
+        clients = clientsResult.value as Record<string, Client>
+      }
+      else {
+        failures.push(new TypeError('common:getNodes returned a non-object result'))
+      }
+
+      if (statusesResult.status === 'rejected') {
+        failures.push(statusesResult.reason)
+      }
+      else if (isRecordResponse(statusesResult.value)) {
+        statuses = statusesResult.value as Record<string, NodeStatus>
+      }
+      else {
+        failures.push(new TypeError('common:getNodesLatestStatus returned a non-object result'))
+      }
+
+      const authenticationFailure = failures.find(error => this.isAuthenticationFailure(error))
+      if (authenticationFailure) {
+        await this.handleAuthenticationChanged()
+        return
+      }
+
+      // 两个请求彼此独立：其中一个失败时仍应用另一个成功结果，避免整轮状态冻结。
+      if (clients) {
+        this.nodesStore.updateNodeClients(clients)
+      }
+      if (statuses) {
+        this.nodesStore.updateNodeStatuses(statuses)
+      }
+
+      if (failures.length === 0) {
+        this.postFailureCount = 0
+        this.appStore.connectionError = false
+        return
+      }
+
+      failures.forEach(error => console.error('[InitManager] Poll request failed:', error))
+      if (failures.every(error => error instanceof RpcTransportError)) {
+        this.postFailureCount++
+        if (this.postFailureCount >= this.config.postFailureThreshold) {
+          this.appStore.connectionError = true
+        }
+      }
+      else {
+        this.appStore.connectionError = true
+      }
     }
     catch (error) {
       if (!this.isLifecycleCurrent(lifecycleGeneration)
