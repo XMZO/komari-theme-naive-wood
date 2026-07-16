@@ -415,7 +415,7 @@ const useAppStore = defineStore('app', () => {
   // 左键新标签依赖真实 href，因此任一开关启用时都使用链接模式
   const useNodeDetailLink = computed<boolean>(() => nodeDetailAsLink.value || openNodeInNewTab.value)
 
-  // 计算属性：首页是否显示续费统计
+  // 计算属性：首页是否显示续费与到期
   const showRenewalStats = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
     if (settings && typeof settings.showRenewalStats === 'boolean') {
@@ -424,7 +424,7 @@ const useAppStore = defineStore('app', () => {
     return true
   })
 
-  // 计算属性：未登录状态是否允许查看续费统计
+  // 计算属性：未登录状态是否允许查看续费与到期
   const allowGuestRenewalStats = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
     if (settings && typeof settings.allowGuestRenewalStats === 'boolean') {

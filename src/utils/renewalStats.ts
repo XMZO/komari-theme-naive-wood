@@ -1,60 +1,65 @@
 import type { NodeData } from '@/stores/nodes'
 
 const DAY_MS = 24 * 60 * 60 * 1000
-const LONG_TERM_DAYS = 36500
-const CUSTOM_CYCLE_MONTH_DAYS = 30.4375
+const AVERAGE_YEAR_DAYS = 365.2425
+const DUE_SOON_DAYS = 30
+const MAX_EXPIRED_ITEMS = 4
+const MAX_UPCOMING_ITEMS = 8
 
 interface CurrencyInfo {
+  key: string
   code: string
   symbol: string
   label: string
+  isMissing: boolean
 }
 
 interface CycleInfo {
   days: number
-  months: number
+  annualMultiplier: number
   label: string
   shortLabel: string
 }
 
 interface ExpiryInfo {
   daysLeft: number
+  expiredLessThanDay: boolean
   isExpired: boolean
   isLongTerm: boolean
   ms: number
-  remainingMs: number
-}
-
-interface MutableMoneyTotal {
-  currency: CurrencyInfo
-  amount: number
-}
-
-export interface MoneyTotal {
-  currencyCode: string
-  currencySymbol: string
-  amount: number
 }
 
 export interface CurrencyRenewalSummary {
+  currencyKey: string
   currencyCode: string
   currencySymbol: string
   label: string
-  monthly: number
-  annual: number
-  remaining: number
   recurringCount: number
+  activeCount: number
+  configuredMonthly: number
+  configuredAnnual: number
+  activeMonthly: number
+  activeAnnual: number
+  unknownExpiryMonthly: number
+  unknownExpiryCount: number
+  expiredMonthly: number
+  dueWithin30Amount: number
+  dueWithin30Count: number
+  overdueRenewalAmount: number
+  overdueCount: number
 }
 
 export interface RenewalItem {
   uuid: string
   name: string
   price: number
+  monthlyEquivalent: number
   currencyCode: string
   currencySymbol: string
   cycleLabel: string
   cycleShortLabel: string
   daysLeft: number
+  expiredLessThanDay: boolean
   expiresAtMs: number
   autoRenewal: boolean
   isExpired: boolean
@@ -62,75 +67,26 @@ export interface RenewalItem {
 
 export interface RenewalStats {
   recurringCount: number
+  activeRecurringCount: number
   oneTimeCount: number
   freeCount: number
+  unpricedCount: number
   expiredCount: number
   dueSoonCount: number
   missingExpiryCount: number
-  invalidCount: number
+  invalidExpiryCount: number
+  invalidPricingCount: number
+  missingCurrencyCount: number
   longTermCount: number
-  monthlyTotals: MoneyTotal[]
-  annualTotals: MoneyTotal[]
-  remainingTotals: MoneyTotal[]
+  autoRenewalCount: number
+  manualRenewalCount: number
+  expiredItems: RenewalItem[]
+  expiredItemCount: number
+  upcomingItems: RenewalItem[]
+  upcomingItemCount: number
   currencySummaries: CurrencyRenewalSummary[]
-  upcoming: RenewalItem[]
   hasRecurringCosts: boolean
-}
-
-const KNOWN_CODES = new Set([
-  'AED',
-  'ARS',
-  'AUD',
-  'BRL',
-  'CAD',
-  'CHF',
-  'CNY',
-  'EUR',
-  'GBP',
-  'HKD',
-  'IDR',
-  'INR',
-  'JPY',
-  'KRW',
-  'MXN',
-  'MYR',
-  'NZD',
-  'PHP',
-  'RUB',
-  'SGD',
-  'THB',
-  'TRY',
-  'TWD',
-  'USD',
-  'VND',
-])
-
-const SYMBOL_TO_CODE: Record<string, string> = {
-  '$': 'USD',
-  'US$': 'USD',
-  '¥': 'CNY',
-  '￥': 'CNY',
-  'CN¥': 'CNY',
-  'RMB': 'CNY',
-  '€': 'EUR',
-  '£': 'GBP',
-  '₩': 'KRW',
-  '₽': 'RUB',
-  '₹': 'INR',
-  '₫': 'VND',
-  '฿': 'THB',
-  '₱': 'PHP',
-  '₺': 'TRY',
-  'HK$': 'HKD',
-  'NT$': 'TWD',
-  'S$': 'SGD',
-  'A$': 'AUD',
-  'C$': 'CAD',
-  'NZ$': 'NZD',
-  'R$': 'BRL',
-  'JP¥': 'JPY',
-  '円': 'JPY',
-  'RM': 'MYR',
+  hasBudgetData: boolean
 }
 
 const CODE_TO_SYMBOL: Record<string, string> = {
@@ -159,12 +115,44 @@ const CODE_TO_SYMBOL: Record<string, string> = {
   VND: '₫',
 }
 
-const INTEGER_CURRENCY_CODES = new Set(['IDR', 'JPY', 'KRW', 'VND'])
+const CODE_TO_LABEL: Record<string, string> = {
+  AED: '阿联酋迪拉姆',
+  ARS: '阿根廷比索',
+  AUD: '澳元',
+  BRL: '巴西雷亚尔',
+  CAD: '加元',
+  CHF: '瑞士法郎',
+  CNY: '人民币',
+  EUR: '欧元',
+  GBP: '英镑',
+  HKD: '港币',
+  IDR: '印尼盾',
+  INR: '印度卢比',
+  JPY: '日元',
+  KRW: '韩元',
+  MXN: '墨西哥比索',
+  MYR: '马来西亚令吉',
+  NZD: '新西兰元',
+  PHP: '菲律宾比索',
+  RUB: '俄罗斯卢布',
+  SGD: '新加坡元',
+  THB: '泰铢',
+  TRY: '土耳其里拉',
+  TWD: '新台币',
+  USD: '美元',
+  VND: '越南盾',
+}
 
-const CYCLE_RANGES: Array<{ min: number, max: number, months: number, label: string, shortLabel: string }> = [
+const CYCLE_RANGES: Array<{
+  min: number
+  max: number
+  months: number
+  label: string
+  shortLabel: string
+}> = [
   { min: 27, max: 32, months: 1, label: '月付', shortLabel: '月' },
   { min: 87, max: 95, months: 3, label: '季付', shortLabel: '季' },
-  { min: 175, max: 186, months: 6, label: '半年付', shortLabel: '半年' },
+  { min: 175, max: 185, months: 6, label: '半年付', shortLabel: '半年' },
   { min: 360, max: 370, months: 12, label: '年付', shortLabel: '年' },
   { min: 720, max: 750, months: 24, label: '两年付', shortLabel: '2年' },
   { min: 1080, max: 1150, months: 36, label: '三年付', shortLabel: '3年' },
@@ -175,35 +163,40 @@ function normalizeCurrency(currency: string | undefined): CurrencyInfo {
   const raw = currency?.trim() ?? ''
   const upper = raw.toUpperCase()
 
-  if (KNOWN_CODES.has(upper)) {
-    return {
-      code: upper,
-      symbol: CODE_TO_SYMBOL[upper] ?? upper,
-      label: upper,
-    }
-  }
-
-  const code = SYMBOL_TO_CODE[raw] ?? SYMBOL_TO_CODE[upper]
-  if (code) {
-    return {
-      code,
-      symbol: CODE_TO_SYMBOL[code] ?? raw,
-      label: code,
-    }
-  }
-
   if (!raw) {
     return {
+      key: 'MISSING',
       code: 'UNKNOWN',
       symbol: '',
-      label: '未知币种',
+      label: '未设置币种',
+      isMissing: true,
     }
   }
 
+  // Komari 官方表单约定美元、人民币符号；其他自由文本按规范化后的原值分组。
+  const komariCode = raw === '$' || raw === '＄'
+    ? 'USD'
+    : raw === '¥' || raw === '￥'
+      ? 'CNY'
+      : upper
+
+  if (/^[A-Z]{3}$/.test(komariCode)) {
+    return {
+      key: `ISO:${komariCode}`,
+      code: komariCode,
+      symbol: CODE_TO_SYMBOL[komariCode] ?? '',
+      label: CODE_TO_LABEL[komariCode] ?? '三字母币种代码',
+      isMissing: false,
+    }
+  }
+
+  const isTextCode = /^[A-Z0-9][\w.-]*$/i.test(raw)
   return {
+    key: `RAW:${isTextCode ? upper : raw}`,
     code: upper || raw,
-    symbol: raw,
-    label: raw,
+    symbol: isTextCode ? '' : raw,
+    label: '自定义币种标记',
+    isMissing: false,
   }
 }
 
@@ -215,7 +208,7 @@ function parseCycle(billingCycle: number): CycleInfo | null {
     if (billingCycle >= range.min && billingCycle <= range.max) {
       return {
         days: billingCycle,
-        months: range.months,
+        annualMultiplier: 12 / range.months,
         label: range.label,
         shortLabel: range.shortLabel,
       }
@@ -224,89 +217,101 @@ function parseCycle(billingCycle: number): CycleInfo | null {
 
   return {
     days: billingCycle,
-    months: billingCycle / CUSTOM_CYCLE_MONTH_DAYS,
-    label: `${billingCycle}天`,
+    annualMultiplier: AVERAGE_YEAR_DAYS / billingCycle,
+    label: `${billingCycle} 天周期`,
     shortLabel: `${billingCycle}天`,
   }
 }
 
-function parseExpiry(expiredAt: string | null | undefined, nowMs: number): ExpiryInfo | null | undefined {
+function localCalendarDayNumber(date: Date): number {
+  return Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / DAY_MS
+}
+
+function parseExpiry(expiredAt: string | null | undefined, now: Date): ExpiryInfo | null | undefined {
   const raw = expiredAt?.trim()
   if (!raw)
     return undefined
 
-  const ms = new Date(raw).getTime()
+  const date = new Date(raw)
+  const ms = date.getTime()
   if (!Number.isFinite(ms))
     return null
+  if (date.getFullYear() < 2)
+    return undefined
 
-  const remainingMs = ms - nowMs
-  const daysLeft = Math.ceil(remainingMs / DAY_MS)
+  const nowMs = now.getTime()
+  const isExpired = ms <= nowMs
+  const elapsedMs = Math.max(0, nowMs - ms)
+  const expiredLessThanDay = isExpired && elapsedMs < DAY_MS
+  const daysLeft = isExpired
+    ? -Math.max(1, Math.floor(elapsedMs / DAY_MS))
+    : Math.max(0, localCalendarDayNumber(date) - localCalendarDayNumber(now))
+  const longTermThreshold = new Date(now)
+  longTermThreshold.setFullYear(longTermThreshold.getFullYear() + 100)
 
   return {
     daysLeft,
-    isExpired: remainingMs <= 0,
-    isLongTerm: daysLeft > LONG_TERM_DAYS,
+    expiredLessThanDay,
+    isExpired,
+    isLongTerm: ms > longTermThreshold.getTime(),
     ms,
-    remainingMs,
   }
 }
 
-function addMoney(map: Map<string, MutableMoneyTotal>, currency: CurrencyInfo, amount: number): void {
-  if (!Number.isFinite(amount) || amount <= 0)
-    return
-
-  const current = map.get(currency.code)
-  if (current) {
-    current.amount += amount
-    return
-  }
-
-  map.set(currency.code, { currency, amount })
-}
-
-function addCurrencySummary(
+function getOrCreateCurrencySummary(
   map: Map<string, CurrencyRenewalSummary>,
   currency: CurrencyInfo,
-  monthly: number,
-  annual: number,
-): void {
-  const current = map.get(currency.code)
-  if (current) {
-    current.monthly += monthly
-    current.annual += annual
-    current.recurringCount += 1
-    return
-  }
+): CurrencyRenewalSummary {
+  const current = map.get(currency.key)
+  if (current)
+    return current
 
-  map.set(currency.code, {
+  const summary: CurrencyRenewalSummary = {
+    currencyKey: currency.key,
     currencyCode: currency.code,
     currencySymbol: currency.symbol,
     label: currency.label,
-    monthly,
-    annual,
-    remaining: 0,
-    recurringCount: 1,
-  })
+    recurringCount: 0,
+    activeCount: 0,
+    configuredMonthly: 0,
+    configuredAnnual: 0,
+    activeMonthly: 0,
+    activeAnnual: 0,
+    unknownExpiryMonthly: 0,
+    unknownExpiryCount: 0,
+    expiredMonthly: 0,
+    dueWithin30Amount: 0,
+    dueWithin30Count: 0,
+    overdueRenewalAmount: 0,
+    overdueCount: 0,
+  }
+  map.set(currency.key, summary)
+  return summary
 }
 
-function addRemainingToCurrencySummary(
-  map: Map<string, CurrencyRenewalSummary>,
+function createRenewalItem(
+  node: NodeData,
+  price: number,
+  monthlyEquivalent: number,
   currency: CurrencyInfo,
-  remaining: number,
-): void {
-  const current = map.get(currency.code)
-  if (current)
-    current.remaining += remaining
-}
-
-function toMoneyTotals(map: Map<string, MutableMoneyTotal>): MoneyTotal[] {
-  return Array.from(map.values())
-    .map(total => ({
-      amount: total.amount,
-      currencyCode: total.currency.code,
-      currencySymbol: total.currency.symbol,
-    }))
-    .sort((a, b) => a.currencyCode.localeCompare(b.currencyCode))
+  cycle: CycleInfo,
+  expiry: ExpiryInfo,
+): RenewalItem {
+  return {
+    uuid: node.uuid,
+    name: node.name,
+    price,
+    monthlyEquivalent,
+    currencyCode: currency.code,
+    currencySymbol: currency.symbol,
+    cycleLabel: cycle.label,
+    cycleShortLabel: cycle.shortLabel,
+    daysLeft: expiry.daysLeft,
+    expiredLessThanDay: expiry.expiredLessThanDay,
+    expiresAtMs: expiry.ms,
+    autoRenewal: node.auto_renewal,
+    isExpired: expiry.isExpired,
+  }
 }
 
 function sortCurrencySummaries(summaries: CurrencyRenewalSummary[]): CurrencyRenewalSummary[] {
@@ -314,32 +319,44 @@ function sortCurrencySummaries(summaries: CurrencyRenewalSummary[]): CurrencyRen
 }
 
 export function buildRenewalStats(nodes: NodeData[], now: Date = new Date()): RenewalStats {
-  const nowMs = now.getTime()
-  const monthlyTotals = new Map<string, MutableMoneyTotal>()
-  const annualTotals = new Map<string, MutableMoneyTotal>()
-  const remainingTotals = new Map<string, MutableMoneyTotal>()
   const currencySummaryMap = new Map<string, CurrencyRenewalSummary>()
-  const upcoming: RenewalItem[] = []
+  const expiredItems: RenewalItem[] = []
+  const upcomingItems: RenewalItem[] = []
 
   let recurringCount = 0
+  let activeRecurringCount = 0
   let oneTimeCount = 0
   let freeCount = 0
+  let unpricedCount = 0
   let expiredCount = 0
   let dueSoonCount = 0
   let missingExpiryCount = 0
-  let invalidCount = 0
+  let invalidExpiryCount = 0
+  let invalidPricingCount = 0
+  let missingCurrencyCount = 0
   let longTermCount = 0
+  let autoRenewalCount = 0
+  let manualRenewalCount = 0
 
   for (const node of nodes) {
     const price = Number(node.price)
-
     if (!Number.isFinite(price)) {
-      invalidCount += 1
+      invalidPricingCount += 1
       continue
     }
 
-    if (price <= 0) {
+    if (price === -1) {
       freeCount += 1
+      continue
+    }
+
+    if (price === 0) {
+      unpricedCount += 1
+      continue
+    }
+
+    if (price < 0) {
+      invalidPricingCount += 1
       continue
     }
 
@@ -350,106 +367,142 @@ export function buildRenewalStats(nodes: NodeData[], now: Date = new Date()): Re
 
     const cycle = parseCycle(Number(node.billing_cycle))
     if (!cycle) {
-      invalidCount += 1
+      invalidPricingCount += 1
       continue
     }
 
-    const currency = normalizeCurrency(node.currency)
-    const monthly = price / cycle.months
-    const annual = monthly * 12
+    const monthlyEquivalent = price * cycle.annualMultiplier / 12
+    const annualEquivalent = price * cycle.annualMultiplier
+    if (!Number.isFinite(monthlyEquivalent) || !Number.isFinite(annualEquivalent)) {
+      invalidPricingCount += 1
+      continue
+    }
+
     recurringCount += 1
+    if (node.auto_renewal)
+      autoRenewalCount += 1
+    else
+      manualRenewalCount += 1
 
-    addMoney(monthlyTotals, currency, monthly)
-    addMoney(annualTotals, currency, annual)
-    addCurrencySummary(currencySummaryMap, currency, monthly, annual)
+    const currency = normalizeCurrency(node.currency)
+    const summary = currency.isMissing
+      ? null
+      : getOrCreateCurrencySummary(currencySummaryMap, currency)
 
-    const expiry = parseExpiry(node.expired_at, nowMs)
+    if (currency.isMissing) {
+      missingCurrencyCount += 1
+    }
+    else if (summary) {
+      summary.recurringCount += 1
+      summary.configuredMonthly += monthlyEquivalent
+      summary.configuredAnnual += annualEquivalent
+    }
+
+    const expiry = parseExpiry(node.expired_at, now)
     if (expiry === undefined) {
       missingExpiryCount += 1
+      if (summary) {
+        summary.unknownExpiryMonthly += monthlyEquivalent
+        summary.unknownExpiryCount += 1
+      }
       continue
     }
     if (expiry === null) {
-      invalidCount += 1
+      invalidExpiryCount += 1
+      if (summary) {
+        summary.unknownExpiryMonthly += monthlyEquivalent
+        summary.unknownExpiryCount += 1
+      }
       continue
     }
 
+    const item = createRenewalItem(node, price, monthlyEquivalent, currency, cycle, expiry)
     if (expiry.isExpired) {
       expiredCount += 1
+      expiredItems.push(item)
+      if (summary) {
+        summary.expiredMonthly += monthlyEquivalent
+        summary.overdueRenewalAmount += price
+        summary.overdueCount += 1
+      }
+      continue
     }
-    else if (expiry.isLongTerm) {
+
+    activeRecurringCount += 1
+    if (summary) {
+      summary.activeCount += 1
+      summary.activeMonthly += monthlyEquivalent
+      summary.activeAnnual += annualEquivalent
+    }
+
+    if (expiry.isLongTerm) {
       longTermCount += 1
-    }
-    else {
-      const remainingRatio = Math.min(1, Math.max(0, expiry.remainingMs / (cycle.days * DAY_MS)))
-      const remaining = price * remainingRatio
-      addMoney(remainingTotals, currency, remaining)
-      addRemainingToCurrencySummary(currencySummaryMap, currency, remaining)
+      continue
     }
 
-    if (!expiry.isExpired && expiry.daysLeft <= 30)
+    upcomingItems.push(item)
+    if (expiry.daysLeft <= DUE_SOON_DAYS) {
       dueSoonCount += 1
-
-    if (!expiry.isLongTerm) {
-      upcoming.push({
-        uuid: node.uuid,
-        name: node.name,
-        price,
-        currencyCode: currency.code,
-        currencySymbol: currency.symbol,
-        cycleLabel: cycle.label,
-        cycleShortLabel: cycle.shortLabel,
-        daysLeft: expiry.daysLeft,
-        expiresAtMs: expiry.ms,
-        autoRenewal: node.auto_renewal,
-        isExpired: expiry.isExpired,
-      })
+      if (summary) {
+        summary.dueWithin30Amount += price
+        summary.dueWithin30Count += 1
+      }
     }
   }
 
+  expiredItems.sort((a, b) => b.expiresAtMs - a.expiresAtMs)
+  upcomingItems.sort((a, b) => a.expiresAtMs - b.expiresAtMs)
+
+  const currencySummaries = sortCurrencySummaries(Array.from(currencySummaryMap.values()))
   return {
     recurringCount,
+    activeRecurringCount,
     oneTimeCount,
     freeCount,
+    unpricedCount,
     expiredCount,
     dueSoonCount,
     missingExpiryCount,
-    invalidCount,
+    invalidExpiryCount,
+    invalidPricingCount,
+    missingCurrencyCount,
     longTermCount,
-    monthlyTotals: toMoneyTotals(monthlyTotals),
-    annualTotals: toMoneyTotals(annualTotals),
-    remainingTotals: toMoneyTotals(remainingTotals),
-    currencySummaries: sortCurrencySummaries(Array.from(currencySummaryMap.values())),
-    upcoming: upcoming.sort((a, b) => a.expiresAtMs - b.expiresAtMs).slice(0, 6),
+    autoRenewalCount,
+    manualRenewalCount,
+    expiredItems: expiredItems.slice(0, MAX_EXPIRED_ITEMS),
+    expiredItemCount: expiredItems.length,
+    upcomingItems: upcomingItems.slice(0, MAX_UPCOMING_ITEMS),
+    upcomingItemCount: upcomingItems.length,
+    currencySummaries,
     hasRecurringCosts: recurringCount > 0,
+    hasBudgetData: currencySummaries.length > 0,
   }
 }
 
-export function formatMoney(amount: number, currencyCode: string, currencySymbol: string): string {
+export function formatMoney(
+  amount: number,
+  currencyCode: string,
+  currencySymbol: string,
+  includeCode = false,
+): string {
   if (!Number.isFinite(amount))
-    return '-'
+    return '—'
 
-  const shouldUseInteger = INTEGER_CURRENCY_CODES.has(currencyCode)
-    || Math.abs(amount - Math.round(amount)) < 0.005
-
+  const shouldUseInteger = Math.abs(amount - Math.round(amount)) < 0.005
   const formatted = amount.toLocaleString('zh-CN', {
     maximumFractionDigits: shouldUseInteger ? 0 : 2,
     minimumFractionDigits: 0,
   })
 
-  return `${currencySymbol}${formatted}`
-}
+  if (currencyCode === 'UNKNOWN')
+    return `${formatted}（未设置币种）`
 
-export function formatMoneyTotal(total: MoneyTotal): string {
-  return formatMoney(total.amount, total.currencyCode, total.currencySymbol)
-}
-
-export function formatMoneyTotals(totals: MoneyTotal[], emptyText = '-'): string {
-  if (totals.length === 0)
-    return emptyText
-
-  const visible = totals.slice(0, 3).map(formatMoneyTotal)
-  const hiddenCount = totals.length - visible.length
-  return hiddenCount > 0 ? `${visible.join(' / ')} +${hiddenCount}` : visible.join(' / ')
+  const amountText = currencySymbol
+    ? `${currencySymbol}${formatted}`
+    : `${currencyCode} ${formatted}`
+  if (includeCode && currencySymbol && currencySymbol !== currencyCode)
+    return `${currencyCode} ${amountText}`
+  return amountText
 }
 
 export function formatRenewalDate(ms: number): string {
@@ -460,20 +513,23 @@ export function formatRenewalDate(ms: number): string {
   return `${year}-${month}-${day}`
 }
 
-export function formatRenewalDays(daysLeft: number): string {
-  if (daysLeft < 0)
+export function formatRenewalDays(daysLeft: number, expiredLessThanDay = false): string {
+  if (daysLeft < 0) {
+    if (expiredLessThanDay)
+      return '已过期（不足 1 天）'
     return `已过期 ${Math.abs(daysLeft)} 天`
+  }
   if (daysLeft === 0)
-    return '今天'
+    return '今天到期'
   if (daysLeft === 1)
-    return '明天'
-  return `${daysLeft} 天`
+    return '明天到期'
+  return `${daysLeft} 天后`
 }
 
-export function getRenewalUrgencyType(daysLeft: number): 'default' | 'error' | 'success' | 'warning' {
+export function getRenewalUrgencyType(daysLeft: number): 'default' | 'error' | 'warning' {
   if (daysLeft < 0 || daysLeft <= 7)
     return 'error'
-  if (daysLeft <= 30)
+  if (daysLeft <= DUE_SOON_DAYS)
     return 'warning'
-  return 'success'
+  return 'default'
 }

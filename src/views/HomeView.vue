@@ -219,7 +219,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
           v-if="canUseRenewalStats"
           class="renewal-trigger"
           :class="[appStore.cardMaterialClass, appStore.cardMaterialBlurClass]"
-          title="续费统计"
+          title="续费与到期"
           text
           @click="openRenewalStats"
         >
@@ -319,8 +319,8 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         </template>
       </div>
     </div>
-    <NDrawer v-if="canUseRenewalStats" v-model:show="showRenewalDrawer" :width="720" placement="right">
-      <NDrawerContent title="续费统计" closable>
+    <NDrawer v-if="canUseRenewalStats" v-model:show="showRenewalDrawer" width="min(920px, 100vw)" placement="right">
+      <NDrawerContent title="续费与到期" closable>
         <RenewalStats :nodes="nodesStore.nodes" embedded />
       </NDrawerContent>
     </NDrawer>
