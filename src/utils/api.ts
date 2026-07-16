@@ -6,13 +6,6 @@
 
 // ==================== 类型定义 ====================
 
-/** API 响应基础结构 */
-interface ApiResponse<T = unknown> {
-  status: 'success' | 'error'
-  message: string
-  data: T
-}
-
 /** 用户信息 */
 export interface MeInfo {
   'logged_in': boolean
@@ -25,17 +18,22 @@ export interface MeInfo {
 
 /** 公开站点属性 */
 export interface PublicSettings {
-  allow_cors: boolean
+  /** @deprecated Komari 新版本已改用 cors_origin_check_enabled */
+  allow_cors?: boolean
+  cors_origin_check_enabled?: boolean
+  visitor_audit_enabled?: boolean
   custom_body: string
   custom_head: string
   description: string
   disable_password_login: boolean
   oauth_enable: boolean
   oauth_provider: string | null
-  ping_record_preserve_time: number
+  ping_record_preserve_time?: number
   private_site: boolean
-  record_enabled: boolean
-  record_preserve_time: number
+  record_enabled?: boolean
+  record_preserve_time?: number
+  /** @deprecated 仅 Komari 1.2.6 短期暴露，主题不得依赖 */
+  metric_retention_days?: number
   sitename: string
   theme: string
   theme_settings?: Record<string, unknown> | null
@@ -57,6 +55,7 @@ export interface NodeInfo {
   virtualization: string
   arch: string
   cpu_cores: number
+  cpu_physical_cores?: number
   os: string
   kernel_version: string
   gpu_name: string
@@ -72,7 +71,7 @@ export interface NodeInfo {
   expired_at: string | null
   group: string
   tags: string
-  public_remark: string
+  public_remark?: string
   hidden: boolean
   traffic_limit: number
   traffic_limit_type: string
@@ -118,15 +117,6 @@ export interface RealtimeStatus {
   updated_at: string
 }
 
-/** WebSocket 实时状态响应 */
-export interface WebSocketRealtimeResponse {
-  status: 'success' | 'error'
-  data: {
-    online: string[]
-    data: Record<string, RealtimeStatus>
-  }
-}
-
 /** 负载历史记录（扁平结构） */
 export interface LoadRecord {
   client: string
@@ -145,6 +135,8 @@ export interface LoadRecord {
   net_out: number
   net_total_up: number
   net_total_down: number
+  traffic_up?: number
+  traffic_down?: number
   process: number
   connections: number
   connections_udp: number
@@ -197,13 +189,44 @@ export interface ApiClientOptions {
 export class ApiError extends Error {
   status: string
   code?: number
+  httpStatus?: number
+  kind: 'http' | 'network' | 'timeout' | 'protocol' | 'unauthenticated' | 'forbidden' | 'invalid_credentials' | 'two_factor_required' | 'two_factor_invalid' | 'password_login_disabled'
+  data?: unknown
 
-  constructor(message: string, status: string = 'error', code?: number) {
+  constructor(
+    message: string,
+    status: string = 'error',
+    code?: number,
+    options: {
+      kind?: ApiError['kind']
+      data?: unknown
+    } = {},
+  ) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.code = code
+    this.httpStatus = code
+    this.kind = options.kind ?? classifyApiError(message, code)
+    this.data = options.data
   }
+}
+
+function classifyApiError(message: string, httpStatus?: number): ApiError['kind'] {
+  const normalized = message.toLowerCase()
+  if (normalized.includes('2fa code is required') || normalized.includes('two factor code is required'))
+    return 'two_factor_required'
+  if (normalized.includes('invalid 2fa') || normalized.includes('invalid two factor'))
+    return 'two_factor_invalid'
+  if (normalized.includes('password login') && (normalized.includes('disabled') || normalized.includes('disable')))
+    return 'password_login_disabled'
+  if (normalized.includes('invalid credentials'))
+    return 'invalid_credentials'
+  if (httpStatus === 401)
+    return 'unauthenticated'
+  if (httpStatus === 403)
+    return 'forbidden'
+  return 'http'
 }
 
 // ==================== API 客户端 ====================
@@ -214,8 +237,69 @@ export class KomariApi {
   private timeout: number
 
   constructor(options: ApiClientOptions = {}) {
-    this.baseUrl = options.baseUrl || import.meta.env.VITE_API_BASE || '/api'
+    this.baseUrl = (options.baseUrl || import.meta.env.VITE_API_BASE || '/api').replace(/\/$/, '')
     this.timeout = options.timeout || 30000
+  }
+
+  private async requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const url = `${this.baseUrl}${path}`
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
+
+    try {
+      const response = await fetch(url, {
+        ...init,
+        credentials: 'include',
+        signal: controller.signal,
+      })
+      const rawBody = await response.text()
+      let payload: unknown = null
+      if (rawBody) {
+        try {
+          payload = JSON.parse(rawBody)
+        }
+        catch {
+          if (response.ok) {
+            throw new ApiError('API response is not valid JSON', 'error', response.status, {
+              kind: 'protocol',
+              data: rawBody,
+            })
+          }
+          payload = rawBody
+        }
+      }
+
+      const responseObject = payload && typeof payload === 'object'
+        ? payload as Record<string, unknown>
+        : null
+      const apiStatus = responseObject && typeof responseObject.status === 'string'
+        ? responseObject.status
+        : undefined
+      const message = responseObject
+        ? String(responseObject.message ?? responseObject.error ?? response.statusText ?? `HTTP ${response.status}`)
+        : response.statusText || (typeof payload === 'string' ? payload : `HTTP ${response.status}`)
+
+      if (!response.ok || apiStatus === 'error') {
+        throw new ApiError(message, apiStatus ?? 'error', response.status, { data: payload })
+      }
+
+      if (responseObject && apiStatus === 'success' && 'data' in responseObject) {
+        return responseObject.data as T
+      }
+
+      return payload as T
+    }
+    catch (error) {
+      if (error instanceof ApiError)
+        throw error
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw new ApiError(`Request timed out after ${this.timeout}ms`, 'error', undefined, { kind: 'timeout' })
+      }
+      throw new ApiError(`Network error: ${error instanceof Error ? error.message : String(error)}`, 'error', undefined, { kind: 'network' })
+    }
+    finally {
+      clearTimeout(timeoutId)
+    }
   }
 
   /**
@@ -236,109 +320,19 @@ export class KomariApi {
       }
     }
 
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        credentials: 'include', // 携带 Cookie
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      const result: ApiResponse<T> = await response.json()
-
-      if (result.status === 'error') {
-        throw new ApiError(result.message || 'Unknown error', 'error', response.status)
-      }
-
-      return result.data
-    }
-    catch (error) {
-      clearTimeout(timeoutId)
-      if (error instanceof ApiError)
-        throw error
-      throw new ApiError(`Network error: ${error instanceof Error ? error.message : String(error)}`, 'error')
-    }
-  }
-
-  /**
-   * 发送 GET 请求（直接返回响应，不解析 ApiResponse 结构）
-   */
-  private async getRaw<T>(path: string): Promise<T> {
-    const url = `${this.baseUrl}${path}`
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-
-    try {
-      const response = await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      if (!response.ok) {
-        throw new ApiError(`HTTP error: ${response.status}`, 'error', response.status)
-      }
-
-      return await response.json()
-    }
-    catch (error) {
-      clearTimeout(timeoutId)
-      if (error instanceof ApiError)
-        throw error
-      throw new ApiError(`Network error: ${error instanceof Error ? error.message : String(error)}`, 'error')
-    }
+    const requestPath = url.slice(this.baseUrl.length)
+    return this.requestJson<T>(requestPath, { method: 'GET' })
   }
 
   /**
    * 发送 POST 请求
    */
   private async post<T>(path: string, body?: unknown): Promise<T> {
-    const url = `${this.baseUrl}${path}`
-
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout)
-
-    try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      })
-
-      clearTimeout(timeoutId)
-
-      const result = await response.json()
-
-      // 登录接口返回 set-cookie 特殊结构
-      if (result['set-cookie']) {
-        return result as T
-      }
-
-      // 检查 API 响应状态
-      const apiResult: ApiResponse<T> = result
-      if (apiResult.status === 'error') {
-        throw new ApiError(apiResult.message || 'Unknown error', 'error', response.status)
-      }
-
-      return apiResult.data
-    }
-    catch (error) {
-      clearTimeout(timeoutId)
-      if (error instanceof ApiError)
-        throw error
-      throw new ApiError(`Network error: ${error instanceof Error ? error.message : String(error)}`, 'error')
-    }
+    return this.requestJson<T>(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
   }
 
   // ===== 用户信息接口 =====
@@ -348,7 +342,7 @@ export class KomariApi {
    * 注意：此接口返回的是直接的 MeInfo 对象，不是包裹在 { status, message, data } 中
    */
   async getMe(): Promise<MeInfo> {
-    return this.getRaw<MeInfo>('/me')
+    return this.get<MeInfo>('/me')
   }
 
   // ===== 服务端公开属性 =====
@@ -434,138 +428,6 @@ export class KomariApi {
    */
   async getPingRecords(uuid: string, hours: number): Promise<PingRecordsResponse> {
     return this.get<PingRecordsResponse>('/records/ping', { uuid, hours })
-  }
-}
-
-// ==================== WebSocket 实时状态客户端 ====================
-
-/** WebSocket 实时状态客户端 */
-export class RealtimeWebSocket {
-  private ws: WebSocket | null = null
-  private url: string
-  private reconnectInterval: number
-  private maxReconnectAttempts: number
-  private reconnectAttempts = 0
-  private listeners: Set<(data: WebSocketRealtimeResponse) => void> = new Set()
-  private errorListeners: Set<(error: Event) => void> = new Set()
-  private isOpen = false
-
-  constructor(options: {
-    baseUrl?: string
-    reconnectInterval?: number
-    maxReconnectAttempts?: number
-  } = {}) {
-    const baseUrl = options.baseUrl || '/api/clients'
-    this.url = baseUrl.replace(/^http/, 'ws').replace(/^https/, 'wss')
-    this.reconnectInterval = options.reconnectInterval || 3000
-    this.maxReconnectAttempts = options.maxReconnectAttempts || 5
-  }
-
-  /**
-   * 连接 WebSocket
-   */
-  connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(this.url)
-
-        this.ws.onopen = () => {
-          this.isOpen = true
-          this.reconnectAttempts = 0
-          // 发送获取数据请求
-          this.ws!.send('get')
-          resolve()
-        }
-
-        this.ws.onmessage = (event) => {
-          try {
-            const data: WebSocketRealtimeResponse = JSON.parse(event.data)
-            this.listeners.forEach(listener => listener(data))
-          }
-          catch {
-            // Ignore parse errors
-          }
-        }
-
-        this.ws.onerror = (error) => {
-          this.errorListeners.forEach(listener => listener(error))
-          if (!this.isOpen) {
-            reject(new ApiError('WebSocket connection failed', 'error'))
-          }
-        }
-
-        this.ws.onclose = () => {
-          this.isOpen = false
-          this.attemptReconnect()
-        }
-      }
-      catch (error) {
-        reject(new ApiError(`WebSocket error: ${error instanceof Error ? error.message : String(error)}`, 'error'))
-      }
-    })
-  }
-
-  /**
-   * 尝试重连
-   */
-  private attemptReconnect(): void {
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++
-      setTimeout(() => {
-        this.connect().catch(() => {
-          // Ignore reconnect errors
-        })
-      }, this.reconnectInterval)
-    }
-  }
-
-  /**
-   * 请求数据
-   */
-  requestData(): void {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send('get')
-    }
-  }
-
-  /**
-   * 订阅实时数据
-   */
-  subscribe(callback: (data: WebSocketRealtimeResponse) => void): () => void {
-    this.listeners.add(callback)
-    return () => {
-      this.listeners.delete(callback)
-    }
-  }
-
-  /**
-   * 订阅错误事件
-   */
-  onError(callback: (error: Event) => void): () => void {
-    this.errorListeners.add(callback)
-    return () => {
-      this.errorListeners.delete(callback)
-    }
-  }
-
-  /**
-   * 关闭连接
-   */
-  close(): void {
-    if (this.ws) {
-      this.ws.close()
-      this.ws = null
-    }
-    this.isOpen = false
-    this.listeners.clear()
-    this.errorListeners.clear()
-  }
-
-  /**
-   * 获取连接状态
-   */
-  get connected(): boolean {
-    return this.isOpen && this.ws?.readyState === WebSocket.OPEN
   }
 }
 

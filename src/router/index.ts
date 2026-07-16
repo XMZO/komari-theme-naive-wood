@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { recordPageView } from '@/utils/visitorAudit'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
@@ -20,8 +21,10 @@ router.beforeEach(() => {
   window.$loadingBar.start()
 })
 
-router.afterEach(() => {
+router.afterEach((to, _from, failure) => {
   window.$loadingBar.finish()
+  if (!failure)
+    recordPageView(to)
 })
 
 export default router

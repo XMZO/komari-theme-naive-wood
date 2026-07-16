@@ -230,7 +230,7 @@ function parseCycle(billingCycle: number): CycleInfo | null {
   }
 }
 
-function parseExpiry(expiredAt: string | undefined, nowMs: number): ExpiryInfo | null | undefined {
+function parseExpiry(expiredAt: string | null | undefined, nowMs: number): ExpiryInfo | null | undefined {
   const raw = expiredAt?.trim()
   if (!raw)
     return undefined

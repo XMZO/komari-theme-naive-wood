@@ -14,6 +14,7 @@ export interface NodeData {
   virtualization: string
   arch: string
   cpu_cores: number
+  cpu_physical_cores?: number
   os: string
   kernel_version: string
   gpu_name?: string
@@ -31,7 +32,7 @@ export interface NodeData {
   billing_cycle: number
   auto_renewal: boolean
   currency: string
-  expired_at: string
+  expired_at: string | null
   group: string
   tags: string
   hidden: boolean
@@ -71,12 +72,15 @@ interface StatusData {
   cpu: number
   gpu: number
   ram: number
+  ram_total: number
   swap: number
+  swap_total: number
   load: number
   load5: number
   load15: number
   temp: number
   disk: number
+  disk_total: number
   net_in: number
   net_out: number
   net_total_up: number
@@ -132,6 +136,7 @@ const useNodesStore = defineStore('nodes', () => {
       virtualization: client.virtualization,
       arch: client.arch,
       cpu_cores: client.cpu_cores,
+      cpu_physical_cores: client.cpu_physical_cores,
       os: client.os,
       kernel_version: client.kernel_version,
       gpu_name: client.gpu_name,
@@ -139,7 +144,7 @@ const useNodesStore = defineStore('nodes', () => {
       ipv6: client.ipv6,
       region: client.region,
       remark: client.remark,
-      public_remark: client.public_remark,
+      public_remark: client.public_remark ?? '',
       mem_total: client.mem_total,
       swap_total: client.swap_total,
       disk_total: client.disk_total,
@@ -191,12 +196,15 @@ const useNodesStore = defineStore('nodes', () => {
       cpu: status.cpu,
       gpu: status.gpu,
       ram: status.ram,
+      mem_total: Number.isFinite(status.ram_total) ? status.ram_total : node.mem_total,
       swap: status.swap,
+      swap_total: Number.isFinite(status.swap_total) ? status.swap_total : node.swap_total,
       load: status.load,
       load5: status.load5,
       load15: status.load15,
       temp: status.temp,
       disk: status.disk,
+      disk_total: Number.isFinite(status.disk_total) ? status.disk_total : node.disk_total,
       net_in: status.net_in,
       net_out: status.net_out,
       net_total_up: status.net_total_up,
@@ -218,12 +226,15 @@ const useNodesStore = defineStore('nodes', () => {
       cpu: status.cpu,
       gpu: status.gpu,
       ram: status.ram,
+      ram_total: status.ram_total,
       swap: status.swap,
+      swap_total: status.swap_total,
       load: status.load,
       load5: status.load5,
       load15: status.load15,
       temp: status.temp,
       disk: status.disk,
+      disk_total: status.disk_total,
       net_in: status.net_in,
       net_out: status.net_out,
       net_total_up: status.net_total_up,
@@ -328,12 +339,15 @@ const useNodesStore = defineStore('nodes', () => {
           cpu: currentNode.cpu,
           gpu: currentNode.gpu,
           ram: currentNode.ram,
+          ram_total: currentNode.mem_total,
           swap: currentNode.swap,
+          swap_total: currentNode.swap_total,
           load: currentNode.load,
           load5: currentNode.load5,
           load15: currentNode.load15,
           temp: currentNode.temp,
           disk: currentNode.disk,
+          disk_total: currentNode.disk_total,
           net_in: currentNode.net_in,
           net_out: currentNode.net_out,
           net_total_up: currentNode.net_total_up,

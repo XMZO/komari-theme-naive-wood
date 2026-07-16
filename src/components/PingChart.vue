@@ -1,12 +1,21 @@
 <script setup lang="ts">
+import type { MetricDefinition, MetricQueryResponse, PingMetricTaskStats, PublicPingTask } from '@/utils/rpc'
 import dayjs from 'dayjs'
 import { NButton, NEmpty, NSpin, NSwitch, NTooltip } from 'naive-ui'
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
 import VChart from 'vue-echarts'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
-import { cutPeakValues, interpolateNullsLinear } from '@/utils/recordHelper'
-import { getSharedRpc } from '@/utils/rpc'
+import {
+  getMetricDefinitions,
+  getPingMetricStatsIfSupported,
+  METRIC_KEYS,
+  metricSeriesTags,
+  PING_HISTORY_METRIC_KEYS,
+  queryMetricsIfSupported,
+} from '@/utils/metrics'
+import { cutPeakValues } from '@/utils/recordHelper'
+import { getSharedRpc, isRpcMethodUnavailable } from '@/utils/rpc'
 import '@/utils/echarts' // 共享 ECharts 配置
 
 const props = defineProps<{
@@ -42,8 +51,15 @@ const chartColors = [
   '#FB923C', // 橙色
 ]
 
-// 从 publicSettings 获取记录保留时间
-const maxPingRecordPreserveTime = computed(() => appStore.publicSettings?.ping_record_preserve_time || 168)
+const metricRetentionHours = ref<number | null>(null)
+
+// 旧版本没有逐指标定义时才使用兼容字段。0 是合法的“关闭历史记录”，不能用 || 覆盖。
+const legacyPingRetentionHours = computed(() => {
+  const value = appStore.publicSettings?.ping_record_preserve_time
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 168
+})
+
+const maxPingRecordPreserveTime = computed(() => metricRetentionHours.value ?? legacyPingRetentionHours.value)
 
 // 视图选项
 const presetViews = [
@@ -85,20 +101,19 @@ const availableViews = computed(() => {
 const selectedView = ref<string>('')
 const selectedHours = computed(() => {
   const view = availableViews.value.find(v => v.label === selectedView.value)
-  return view?.hours || 1
+  return view?.hours ?? 0
 })
 
 // 初始化默认视图
 watch(availableViews, (views) => {
-  const firstView = views[0]
-  if (firstView && !selectedView.value) {
-    selectedView.value = firstView.label
+  if (!views.some(view => view.label === selectedView.value)) {
+    selectedView.value = views[0]?.label ?? ''
   }
 }, { immediate: true })
 
 // ==================== 类型定义 ====================
 
-interface PingRecord {
+interface LegacyPingRecord {
   client: string
   task_id: number
   time: string
@@ -106,167 +121,453 @@ interface PingRecord {
 }
 
 interface TaskInfo {
-  id: number
+  id: string
   name: string
-  interval: number
-  loss: number
-  p99?: number
-  p50?: number
-  p99_p50_ratio?: number
-  min?: number
-  max?: number
-  avg?: number
-  latest?: number
-  total?: number
+  interval?: number | null
+  loss: number | null
+  lossApproximate?: boolean
+  p99?: number | null
+  p50?: number | null
+  p99_p50_ratio?: number | null
+  min?: number | null
+  max?: number | null
+  avg?: number | null
+  latest?: number | null
+  stddev?: number | null
+  total?: number | null
+  valid?: number | null
   type?: string
 }
 
-interface PingRecordsResponse {
+interface LegacyTaskInfo {
+  id: number
+  name: string
+  interval?: number
+  loss?: number
+  p99?: number | null
+  p50?: number | null
+  p99_p50_ratio?: number | null
+  min?: number | null
+  max?: number | null
+  avg?: number | null
+  latest?: number | null
+  total?: number | null
+  type?: string
+}
+
+interface LegacyPingRecordsResponse {
   count: number
-  records: PingRecord[]
-  tasks?: TaskInfo[]
+  records: LegacyPingRecord[]
+  tasks?: LegacyTaskInfo[]
   from?: string
   to?: string
 }
 
+type PingChartRow = { time: string } & Record<string, string | number | null>
+
+interface PingDataPayload {
+  rows: PingChartRow[]
+  tasks: TaskInfo[]
+  retentionHours: number | null
+}
+
 // 数据状态
-const remoteData = shallowRef<PingRecord[]>([])
+const pingRows = shallowRef<PingChartRow[]>([])
 const tasks = shallowRef<TaskInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 
 // 任务选择
-const selectedTaskIds = ref<number[]>([])
+const selectedTaskIds = ref<string[]>([])
 const cutPeak = ref(false)
 
 const chartMargin = { top: 12, right: 24, bottom: 52, left: 56 }
+let fetchSequence = 0
 
 // ==================== 数据获取 ====================
+
+function minimumPositivePingRetentionHours(definitions: MetricDefinition[]): number {
+  const definitionMap = new Map(definitions.map(definition => [definition.name, definition]))
+  const latencyDays = definitionMap.get(METRIC_KEYS.pingLatency)?.retention_days
+  if (typeof latencyDays !== 'number' || !Number.isFinite(latencyDays) || latencyDays <= 0)
+    return 0
+
+  const lossDays = definitionMap.get(METRIC_KEYS.pingLoss)?.retention_days
+  const positiveDays = [latencyDays]
+  if (typeof lossDays === 'number' && Number.isFinite(lossDays) && lossDays > 0) {
+    positiveDays.push(lossDays)
+  }
+
+  return Math.min(...positiveDays) * 24
+}
+
+function activePingMetricKeys(definitions: MetricDefinition[]): string[] {
+  const definitionMap = new Map(definitions.map(definition => [definition.name, definition]))
+  return PING_HISTORY_METRIC_KEYS.filter((key) => {
+    const days = definitionMap.get(key)?.retention_days
+    return typeof days === 'number' && Number.isFinite(days) && days > 0
+  })
+}
+
+function nullableFiniteNumber(value: number | null | undefined): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function metricStatToTask(stat: PingMetricTaskStats): TaskInfo {
+  const id = String(stat.task_id)
+  return {
+    id,
+    name: stat.name || `任务 ${id}`,
+    interval: nullableFiniteNumber(stat.interval),
+    loss: Number.isFinite(stat.loss) ? stat.loss : null,
+    lossApproximate: stat.loss_approximate === true,
+    min: nullableFiniteNumber(stat.min),
+    max: nullableFiniteNumber(stat.max),
+    avg: nullableFiniteNumber(stat.avg),
+    latest: nullableFiniteNumber(stat.latest),
+    p50: nullableFiniteNumber(stat.p50),
+    p99: nullableFiniteNumber(stat.p99),
+    stddev: nullableFiniteNumber(stat.stddev),
+    p99_p50_ratio: nullableFiniteNumber(stat.p99_p50_ratio),
+    total: Number.isFinite(stat.total) ? stat.total : null,
+    valid: Number.isFinite(stat.valid) ? stat.valid : null,
+    type: stat.type,
+  }
+}
+
+function legacyTaskToTask(task: LegacyTaskInfo): TaskInfo {
+  const id = String(task.id)
+  return {
+    id,
+    name: task.name || `任务 ${id}`,
+    interval: nullableFiniteNumber(task.interval),
+    loss: typeof task.loss === 'number' && Number.isFinite(task.loss) ? task.loss : null,
+    min: nullableFiniteNumber(task.min),
+    max: nullableFiniteNumber(task.max),
+    avg: nullableFiniteNumber(task.avg),
+    latest: nullableFiniteNumber(task.latest),
+    p50: nullableFiniteNumber(task.p50),
+    p99: nullableFiniteNumber(task.p99),
+    p99_p50_ratio: nullableFiniteNumber(task.p99_p50_ratio),
+    total: nullableFiniteNumber(task.total),
+    type: task.type,
+  }
+}
+
+function correctLatencyAverage(latency: number | null | undefined, loss: number | null | undefined): number | null {
+  if (typeof latency !== 'number' || !Number.isFinite(latency))
+    return null
+
+  if (typeof loss !== 'number' || !Number.isFinite(loss))
+    return latency >= 0 ? latency : null
+
+  const normalizedLoss = Math.min(1, Math.max(0, loss))
+  if (normalizedLoss >= 1)
+    return null
+
+  // ping.latency_ms 以 -1 表示丢包；结合同时写入的 ping.loss 恢复成功样本平均值。
+  const corrected = (latency + normalizedLoss) / (1 - normalizedLoss)
+  return Number.isFinite(corrected) && corrected >= 0 ? corrected : null
+}
+
+function buildMetricPayload(
+  query: MetricQueryResponse,
+  stats: PingMetricTaskStats[],
+  publicTasks: PublicPingTask[] | null,
+  retentionHours: number,
+): PingDataPayload {
+  interface MetricBucket {
+    taskID: string
+    time: string
+    latency?: number | null
+    loss?: number | null
+  }
+
+  const buckets = new Map<string, MetricBucket>()
+  const taskIDs = new Set<string>()
+  const lossTotals = new Map<string, { weightedLoss: number, count: number }>()
+
+  for (const series of query.series) {
+    if (series.metric_key !== METRIC_KEYS.pingLatency && series.metric_key !== METRIC_KEYS.pingLoss)
+      continue
+    const taskID = metricSeriesTags(series).task_id
+    if (!taskID)
+      continue
+    taskIDs.add(taskID)
+
+    for (const point of series.points) {
+      const key = `${taskID}\u0000${point.time}`
+      let bucket = buckets.get(key)
+      if (!bucket) {
+        bucket = { taskID, time: point.time }
+        buckets.set(key, bucket)
+      }
+
+      if (series.metric_key === METRIC_KEYS.pingLatency) {
+        bucket.latency = point.value
+      }
+      else {
+        bucket.loss = point.value
+        if (typeof point.value === 'number' && Number.isFinite(point.value)) {
+          const sampleCount = typeof point.count === 'number' && point.count > 0 ? point.count : 1
+          const total = lossTotals.get(taskID) ?? { weightedLoss: 0, count: 0 }
+          total.weightedLoss += Math.min(1, Math.max(0, point.value)) * sampleCount
+          total.count += sampleCount
+          lossTotals.set(taskID, total)
+        }
+      }
+    }
+  }
+
+  const rowMap = new Map<string, PingChartRow>()
+  for (const bucket of buckets.values()) {
+    let row = rowMap.get(bucket.time)
+    if (!row) {
+      row = { time: bucket.time }
+      rowMap.set(bucket.time, row)
+    }
+    row[bucket.taskID] = correctLatencyAverage(bucket.latency, bucket.loss)
+  }
+
+  const statsTaskIDs = stats.map(stat => String(stat.task_id))
+  const taskMap = new Map(stats.map(stat => [String(stat.task_id), metricStatToTask(stat)]))
+  statsTaskIDs.forEach(taskID => taskIDs.add(taskID))
+  for (const taskID of taskIDs) {
+    if (taskMap.has(taskID))
+      continue
+    const lossTotal = lossTotals.get(taskID)
+    taskMap.set(taskID, {
+      id: taskID,
+      name: `任务 ${taskID}`,
+      loss: lossTotal && lossTotal.count > 0 ? lossTotal.weightedLoss / lossTotal.count * 100 : null,
+      lossApproximate: false,
+    })
+  }
+
+  const orderedTasks: TaskInfo[] = []
+  const addedTaskIDs = new Set<string>()
+  const appendTask = (taskID: string, metadata?: PublicPingTask) => {
+    if (addedTaskIDs.has(taskID))
+      return
+    const task: TaskInfo = taskMap.get(taskID) ?? {
+      id: taskID,
+      name: `任务 ${taskID}`,
+      loss: null,
+    }
+    orderedTasks.push(metadata
+      ? {
+          ...task,
+          name: metadata.name || task.name,
+          interval: nullableFiniteNumber(metadata.interval) ?? task.interval,
+          type: metadata.type || task.type,
+        }
+      : task)
+    addedTaskIDs.add(taskID)
+  }
+
+  if (publicTasks !== null) {
+    for (const task of publicTasks) {
+      if (!Array.isArray(task.clients) || !task.clients.includes(props.uuid))
+        continue
+      appendTask(String(task.id), task)
+    }
+  }
+
+  // 公开任务接口不可用时严格保留 stats 顺序；未出现在 stats 的序列随后按查询顺序追加。
+  statsTaskIDs.forEach(taskID => appendTask(taskID))
+  taskIDs.forEach(taskID => appendTask(taskID))
+
+  return {
+    rows: Array.from(rowMap.values()).sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf()),
+    tasks: orderedTasks,
+    retentionHours,
+  }
+}
+
+function buildLegacyPayload(result: LegacyPingRecordsResponse): PingDataPayload {
+  const legacyTasks = (result.tasks ?? []).map(legacyTaskToTask)
+  const taskIntervals = legacyTasks
+    .map(task => task.interval)
+    .filter((value): value is number => typeof value === 'number' && value > 0)
+  const fallbackIntervalSec = taskIntervals.length > 0 ? Math.min(...taskIntervals) : 60
+  const toleranceMs = Math.min(6000, Math.max(800, Math.floor(fallbackIntervalSec * 1000 * 0.25)))
+  const grouped = new Map<number, PingChartRow>()
+  const anchors: number[] = []
+  const taskIDs = new Set<string>(legacyTasks.map(task => task.id))
+
+  const records = [...(result.records ?? [])].sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
+  for (const record of records) {
+    const taskID = String(record.task_id)
+    taskIDs.add(taskID)
+    const timestamp = dayjs(record.time).valueOf()
+    let anchor = anchors.find(value => Math.abs(value - timestamp) <= toleranceMs)
+    if (anchor === undefined) {
+      anchor = timestamp
+      anchors.push(anchor)
+      grouped.set(anchor, { time: dayjs(anchor).toISOString() })
+    }
+    const row = grouped.get(anchor)!
+    row[taskID] = record.value >= 0 ? record.value : null
+  }
+
+  const taskMap = new Map(legacyTasks.map(task => [task.id, task]))
+  for (const taskID of taskIDs) {
+    if (!taskMap.has(taskID)) {
+      taskMap.set(taskID, { id: taskID, name: `任务 ${taskID}`, loss: null })
+    }
+  }
+
+  return {
+    rows: Array.from(grouped.values()).sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf()),
+    tasks: Array.from(taskMap.values()),
+    retentionHours: null,
+  }
+}
+
+async function fetchPublicPingTasksIfSupported(): Promise<PublicPingTask[] | null> {
+  try {
+    return await rpc.getPublicPingTasks()
+  }
+  catch (err) {
+    if (isRpcMethodUnavailable(err))
+      return null
+    throw err
+  }
+}
+
+async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null> {
+  const definitions = await getMetricDefinitions()
+  if (definitions === null)
+    return null
+
+  const retentionHours = minimumPositivePingRetentionHours(definitions)
+  const metricKeys = activePingMetricKeys(definitions)
+  if (retentionHours === 0 || hours <= 0 || metricKeys.length === 0) {
+    return { rows: [], tasks: [], retentionHours }
+  }
+
+  const [query, statsResponse, publicTasks] = await Promise.all([
+    queryMetricsIfSupported({
+      metric_keys: metricKeys,
+      entity_id: props.uuid,
+      hours,
+      downsample: true,
+      fill_empty: true,
+      max_points: 600,
+      aggregation: 'avg',
+      aggregation_by_metric: {
+        [METRIC_KEYS.pingLatency]: 'avg',
+        [METRIC_KEYS.pingLoss]: 'avg',
+      },
+    }),
+    getPingMetricStatsIfSupported({ entity_id: props.uuid, hours, max_points: 600 }),
+    fetchPublicPingTasksIfSupported(),
+  ])
+
+  if (query === null || statsResponse === null)
+    return null
+
+  return buildMetricPayload(query, statsResponse.stats, publicTasks, retentionHours)
+}
+
+async function fetchLegacyPayload(hours: number): Promise<PingDataPayload> {
+  if (hours <= 0)
+    return { rows: [], tasks: [], retentionHours: null }
+
+  const result = await rpc.getClient().call<LegacyPingRecordsResponse>('common:getRecords', {
+    uuid: props.uuid,
+    type: 'ping',
+    hours,
+  })
+  return buildLegacyPayload(result)
+}
+
+function syncSelectedTasks(nextTasks: TaskInfo[]): void {
+  const available = new Set(nextTasks.map(task => task.id))
+  const selected = selectedTaskIds.value.filter(id => available.has(id))
+  selectedTaskIds.value = selected.length > 0 ? selected : nextTasks.map(task => task.id)
+}
 
 async function fetchRecords() {
   if (!props.uuid)
     return
 
+  const requestID = ++fetchSequence
+
   loading.value = true
   error.value = null
 
   try {
-    const result = await rpc.getClient().call<PingRecordsResponse>('common:getRecords', {
-      uuid: props.uuid,
-      type: 'ping',
-      hours: selectedHours.value,
-    })
+    const hours = selectedHours.value
+    const metricPayload = await fetchMetricPayload(hours)
+    const payload = metricPayload ?? await fetchLegacyPayload(hours)
+    if (requestID !== fetchSequence)
+      return
 
-    const records = result?.records || []
-    records.sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
-
-    remoteData.value = records
-    tasks.value = result?.tasks || []
-
-    if (tasks.value.length > 0 && selectedTaskIds.value.length === 0) {
-      selectedTaskIds.value = tasks.value.map(t => t.id)
-    }
+    metricRetentionHours.value = payload.retentionHours
+    pingRows.value = payload.rows
+    tasks.value = payload.tasks
+    syncSelectedTasks(payload.tasks)
   }
   catch (err) {
+    if (requestID !== fetchSequence)
+      return
     error.value = err instanceof Error ? err.message : '获取数据失败'
-    remoteData.value = []
+    pingRows.value = []
     tasks.value = []
   }
   finally {
-    loading.value = false
+    if (requestID === fetchSequence) {
+      loading.value = false
+    }
   }
 }
 
 // ==================== 数据处理 ====================
 
-const mergedData = computed(() => {
-  const data = remoteData.value
-  if (!data.length)
-    return []
+function applyCutPeakWithoutFillingGaps(data: PingChartRow[], keys: string[]): PingChartRow[] {
+  const output = data.map(row => ({ ...row }))
 
-  const taskList = tasks.value
+  for (const key of keys) {
+    let index = 0
+    while (index < output.length) {
+      while (index < output.length && typeof output[index]?.[key] !== 'number')
+        index++
+      const start = index
+      while (index < output.length && typeof output[index]?.[key] === 'number')
+        index++
+      if (start === index)
+        continue
 
-  const taskIntervals = taskList
-    .map(t => t.interval)
-    .filter((v): v is number => typeof v === 'number' && v > 0)
-
-  const fallbackIntervalSec = taskIntervals.length ? Math.min(...taskIntervals) : 60
-  const toleranceMs = Math.min(
-    6000,
-    Math.max(800, Math.floor(fallbackIntervalSec * 1000 * 0.25)),
-  )
-
-  const grouped: Map<number, Record<string, unknown>> = new Map()
-  const anchors: number[] = []
-
-  for (const rec of data) {
-    const ts = dayjs(rec.time).valueOf()
-    let anchor: number | null = null
-
-    for (const a of anchors) {
-      if (Math.abs(a - ts) <= toleranceMs) {
-        anchor = a
-        break
+      const segment = output.slice(start, index).map(row => ({ ...row }))
+      const smoothed = cutPeakValues(segment, [key])
+      for (let offset = 0; offset < smoothed.length; offset++) {
+        const row = output[start + offset]
+        const value = smoothed[offset]?.[key]
+        if (row && typeof value === 'number' && Number.isFinite(value)) {
+          row[key] = value
+        }
       }
-    }
-
-    const useTs = anchor ?? ts
-    if (!grouped.has(useTs)) {
-      grouped.set(useTs, { time: dayjs(useTs).toISOString() })
-      if (anchor === null) {
-        anchors.push(useTs)
-      }
-    }
-
-    const group = grouped.get(useTs)!
-    group[rec.task_id] = rec.value < 0 ? null : rec.value
-  }
-
-  const merged = Array.from(grouped.values()).sort(
-    (a, b) => dayjs(a.time as string).valueOf() - dayjs(b.time as string).valueOf(),
-  )
-
-  const hours = selectedHours.value
-  const lastItem = merged[merged.length - 1]
-  const lastTs = lastItem ? dayjs(lastItem.time as string).valueOf() : dayjs().valueOf()
-  const fromTs = lastTs - hours * 3600_000
-
-  let startIdx = 0
-  for (let i = 0; i < merged.length; i++) {
-    const item = merged[i]
-    if (!item)
-      continue
-    const ts = dayjs(item.time as string).valueOf()
-    if (ts >= fromTs) {
-      startIdx = Math.max(0, i - 1)
-      break
     }
   }
 
-  return merged.slice(startIdx)
-})
+  return output
+}
 
 const chartData = computed(() => {
-  let data = mergedData.value
-  const selectedKeys = selectedTaskIds.value.map(String)
+  const selectedKeys = selectedTaskIds.value
 
   if (selectedKeys.length === 0)
     return []
 
-  if (cutPeak.value) {
-    data = cutPeakValues(data, selectedKeys)
-  }
-
-  if (selectedKeys.length > 0 && data.length > 0) {
-    data = interpolateNullsLinear(data, selectedKeys, {
-      maxGapMultiplier: 6,
-      minCapMs: 2 * 60_000,
-      maxCapMs: 30 * 60_000,
-    })
-  }
-
-  return data
+  return cutPeak.value
+    ? applyCutPeakWithoutFillingGaps(pingRows.value, selectedKeys)
+    : pingRows.value
 })
+
+const emptyDescription = computed(() => maxPingRecordPreserveTime.value === 0
+  ? 'Ping 历史记录已关闭'
+  : '暂无延迟数据')
 
 // ==================== 工具函数 ====================
 
@@ -291,7 +592,7 @@ const showDateInAxis = computed(() => selectedHours.value >= 24)
 // ==================== 任务选择 ====================
 
 // 获取任务颜色（根据任务在完整列表中的索引）
-function getTaskColor(taskId: number): string {
+function getTaskColor(taskId: string): string {
   const taskIndex = tasks.value.findIndex(t => t.id === taskId)
   const safeIndex = Math.max(0, taskIndex % chartColors.length)
   return chartColors[safeIndex]!
@@ -302,12 +603,18 @@ const latestValues = computed(() => {
   if (!tasks.value.length)
     return []
 
-  const latestMap = new Map<number, number | null>()
+  const latestMap = new Map<string, number | null>()
   for (const task of tasks.value) {
-    for (let i = remoteData.value.length - 1; i >= 0; i--) {
-      const rec = remoteData.value[i]
-      if (rec && rec.task_id === task.id && rec.value >= 0) {
-        latestMap.set(task.id, rec.value)
+    const statLatest = nullableFiniteNumber(task.latest)
+    if (statLatest !== null) {
+      latestMap.set(task.id, statLatest)
+      continue
+    }
+
+    for (let i = pingRows.value.length - 1; i >= 0; i--) {
+      const value = pingRows.value[i]?.[task.id]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        latestMap.set(task.id, value)
         break
       }
     }
@@ -328,7 +635,7 @@ const selectedTasks = computed(() => {
 })
 
 // 切换任务选中状态
-function toggleTask(taskId: number) {
+function toggleTask(taskId: string) {
   if (selectedTaskIds.value.includes(taskId)) {
     selectedTaskIds.value = selectedTaskIds.value.filter(id => id !== taskId)
   }
@@ -400,7 +707,7 @@ const pingChartOption = computed(() => {
   })
 
   // 颜色映射表（用于 Tooltip）
-  const colorMap = new Map<number, string>()
+  const colorMap = new Map<string, string>()
   tasks.value.forEach((task, idx) => {
     const safeIdx = Math.max(0, idx % chartColors.length)
     colorMap.set(task.id, chartColors[safeIdx]!)
@@ -499,7 +806,7 @@ watch(selectedView, () => {
 })
 
 watch(() => props.uuid, () => {
-  remoteData.value = []
+  pingRows.value = []
   tasks.value = []
   selectedTaskIds.value = []
   fetchRecords()
@@ -519,7 +826,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
 <template>
   <div class="flex flex-col gap-4">
     <!-- 时间选择器 -->
-    <div class="flex flex-wrap gap-2 justify-center">
+    <div v-if="availableViews.length > 0" class="flex flex-wrap gap-2 justify-center">
       <NButton
         v-for="view in availableViews"
         :key="view.label"
@@ -537,7 +844,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
         {{ error }}
       </div>
       <div v-else-if="tasks.length === 0 && !loading" class="py-8">
-        <NEmpty description="暂无延迟数据" />
+        <NEmpty :description="emptyDescription" />
       </div>
 
       <template v-else>
@@ -575,35 +882,39 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
                       <span class="i-carbon-information text-sm opacity-50 cursor-help transition-opacity hover:opacity-100" style="color: var(--n-text-color-2)" @click.stop />
                     </template>
                     <div class="text-sm gap-x-4 gap-y-1.5 grid grid-cols-2">
-                      <template v-if="task.min !== undefined">
+                      <template v-if="task.min != null">
                         <span style="color: var(--n-text-color-3)">最小</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.min) }} ms</span>
                       </template>
-                      <template v-if="task.max !== undefined">
+                      <template v-if="task.max != null">
                         <span style="color: var(--n-text-color-3)">最大</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.max) }} ms</span>
                       </template>
-                      <template v-if="task.avg !== undefined">
+                      <template v-if="task.avg != null">
                         <span style="color: var(--n-text-color-3)">平均</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.avg) }} ms</span>
                       </template>
-                      <template v-if="task.latest !== undefined">
+                      <template v-if="task.latest != null">
                         <span style="color: var(--n-text-color-3)">最新</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.latest) }} ms</span>
                       </template>
-                      <template v-if="task.p50 !== undefined">
+                      <template v-if="task.p50 != null">
                         <span style="color: var(--n-text-color-3)">P50</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p50) }} ms</span>
                       </template>
-                      <template v-if="task.p99 !== undefined">
+                      <template v-if="task.p99 != null">
                         <span style="color: var(--n-text-color-3)">P99</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ Math.round(task.p99) }} ms</span>
                       </template>
-                      <template v-if="task.p99_p50_ratio !== undefined">
+                      <template v-if="task.stddev != null">
+                        <span style="color: var(--n-text-color-3)">标准差</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.stddev.toFixed(1) }} ms</span>
+                      </template>
+                      <template v-if="task.p99_p50_ratio != null">
                         <span style="color: var(--n-text-color-3)">波动率</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.p99_p50_ratio.toFixed(2) }}</span>
                       </template>
-                      <template v-if="task.interval !== undefined">
+                      <template v-if="task.interval != null">
                         <span style="color: var(--n-text-color-3)">间隔</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.interval }}s</span>
                       </template>
@@ -611,9 +922,17 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
                         <span style="color: var(--n-text-color-3)">类型</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.type.toUpperCase() }}</span>
                       </template>
-                      <template v-if="task.total !== undefined">
+                      <template v-if="task.total != null">
                         <span style="color: var(--n-text-color-3)">总数</span>
                         <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.total }}</span>
+                      </template>
+                      <template v-if="task.valid != null">
+                        <span style="color: var(--n-text-color-3)">有效</span>
+                        <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily }">{{ task.valid }}</span>
+                      </template>
+                      <template v-if="task.lossApproximate">
+                        <span style="color: var(--n-text-color-3)">丢包统计</span>
+                        <span class="font-medium">估算值</span>
                       </template>
                     </div>
                   </NTooltip>
@@ -621,8 +940,11 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
                 <div class="text-sm mt-1 flex gap-3 items-center" style="color: var(--n-text-color-3)">
                   <span class="font-medium" :style="{ fontFamily: appStore.numberFontFamily, color: 'var(--n-text-color-1)' }">{{ task.latestValue !== null ? `${Math.round(task.latestValue)} ms` : '-' }}</span>
                   <span class="opacity-60">•</span>
-                  <span :style="{ fontFamily: appStore.numberFontFamily }">{{ task.loss.toFixed(1) }}% 丢包</span>
-                  <template v-if="task.p99_p50_ratio !== undefined">
+                  <span
+                    :style="{ fontFamily: appStore.numberFontFamily }"
+                    :title="task.lossApproximate ? '丢包率由延迟指标近似推算' : undefined"
+                  >{{ task.loss != null ? `${task.lossApproximate ? '≈' : ''}${task.loss.toFixed(1)}% 丢包${task.lossApproximate ? '（估算）' : ''}` : '丢包 -' }}</span>
+                  <template v-if="task.p99_p50_ratio != null">
                     <span class="opacity-60">•</span>
                     <span :style="{ fontFamily: appStore.numberFontFamily }" title="波动率 p99/p50">{{ task.p99_p50_ratio.toFixed(1) }} 波动</span>
                   </template>

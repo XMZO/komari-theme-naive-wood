@@ -1,388 +1,156 @@
-# Komari RPC2 客户端 SDK
+# Komari RPC2 客户端
 
-基于 JSON-RPC 2.0 规范的 Komari RPC 客户端，支持 HTTP POST 和 WebSocket 两种传输方式。
+`rpc.ts` 是主题使用的 JSON-RPC 2.0 客户端，支持 HTTP POST 与 WebSocket。主题运行时统一复用 `getSharedRpc()`，不要为组件各自创建连接。
 
-## 安装与引入
+## 基本用法
 
-```typescript
-import { getSharedRpc, KomariRpc, RpcError } from '@/utils/rpc'
-```
+```ts
+import { getSharedRpc } from '@/utils/rpc'
 
-## 快速开始
-
-### 使用共享实例
-
-```typescript
-// 获取全局共享实例
 const rpc = getSharedRpc()
-
-// 获取所有节点
 const nodes = await rpc.getNodes()
-
-// 获取节点最新状态
 const status = await rpc.getNodesLatestStatus()
-
-// 健康检查
-const pong = await rpc.ping() // 'pong'
 ```
 
-### 创建独立实例
+默认端点由 `VITE_API_BASE` 派生：
 
-```typescript
-const rpc = new KomariRpc({
-  baseUrl: '/api/rpc2', // 基础路径
-  timeout: 30000, // 超时时间（毫秒）
-  useWebSocket: false, // 是否使用 WebSocket
-})
+- HTTP/WS RPC：`<VITE_API_BASE>/rpc2`
+- 未设置时：`/api/rpc2`
+- HTTP 请求使用 `credentials: 'include'`
+
+## RPC 内置方法
+
+Komari 注册的名称是：
+
+- `rpc.ping`
+- `rpc.methods`
+- `rpc.help`
+- `rpc.version`
+
+`rpc.getMethods`、`rpc.getHelp`、`rpc.getVersion` 不是 Komari 的官方方法名，客户端不应调用。
+
+```ts
+await rpc.ping()
+await rpc.getMethods(true)
+await rpc.getHelp('common:getNodes')
+await rpc.getProtocolVersion()
 ```
 
-## API 参考
+`rpc.help` 在指定方法时返回一个 `MethodMeta`，未指定时返回数组。元数据可能包含 `params[].required` 与 `example`。
 
-### RpcClientOptions 配置
+## 节点与版本
 
-| 参数           | 类型      | 默认值      | 说明                    |
-| -------------- | --------- | ----------- | ----------------------- |
-| `baseUrl`      | `string`  | `/api/rpc2` | RPC 接口基础路径        |
-| `timeout`      | `number`  | `30000`     | 请求超时时间（毫秒）    |
-| `useWebSocket` | `boolean` | `false`     | 是否使用 WebSocket 传输 |
-
-### RPC 内置方法
-
-#### `ping(): Promise<string>`
-
-健康检查，返回 `pong`。
-
-```typescript
-const result = await rpc.ping()
-// result: 'pong'
-```
-
-#### `getVersion(): Promise<string>`
-
-获取 RPC 接口版本号。
-
-```typescript
+```ts
 const version = await rpc.getVersion()
+const nodes = await rpc.getNodes()
+const latest = await rpc.getNodesLatestStatus()
+const recent = await rpc.getNodeRecentStatus(uuid)
 ```
 
-#### `getMethods(internal?: boolean): Promise<string[]>`
+- 服务端版本优先调用 `public:getVersion`，仅在方法不存在时回退 `common:getVersion`。
+- `common:getBackendVersion` 不存在。
+- `common:getNodes` 返回以 UUID 为键的对象。
+- `common:getNodesLatestStatus` 返回以 UUID 为键的对象。
+- `common:getNodeRecentStatus` 只接受 `uuid`，没有有效的 `limit` 参数。
+- 最新/最近状态的 `connections` 是 TCP + UDP，主题展示 TCP 时必须减去 `connections_udp`。
+- 历史 `Record.connections` 已经是 TCP，不应再次减 UDP。
+- `expired_at` 可能为 `null`，`public_remark` 可能缺失。
 
-获取所有可用的 RPC 方法名称。
+## 新指标接口与旧版回退
 
-```typescript
-const methods = await rpc.getMethods(true) // 包含内置方法
-```
+Komari 1.2.6 起提供：
 
-#### `getHelp(method: string): Promise<MethodMeta>`
+```ts
+const definitions = await rpc.listMetricDefinitions()
 
-获取指定方法的帮助信息。
-
-```typescript
-const help = await rpc.getHelp('common:getNodes')
-// {
-//   name: 'common:getNodes',
-//   summary: '获取节点信息',
-//   description: '...',
-//   params: [...],
-//   returns: 'Client | { [uuid]: Client }'
-// }
-```
-
-### 通用方法
-
-#### `getNodes(uuid?: string): Promise<Client | Record<string, Client>>`
-
-获取节点信息。不传参数返回所有节点，传入 UUID 返回单个节点。
-
-```typescript
-// 获取所有节点
-const allNodes = await rpc.getNodes() // Record<string, Client>
-
-// 获取单个节点
-const node = await rpc.getNodes('uuid-xxx') // Client
-```
-
-#### `getPublicInfo(): Promise<PublicInfo>`
-
-获取公开的站点与运行配置信息。
-
-```typescript
-const info = await rpc.getPublicInfo()
-// {
-//   sitename: 'Komari Monitor',
-//   description: '...',
-//   oauth_enable: true,
-//   ...
-// }
-```
-
-#### `getBackendVersion(): Promise<VersionInfo>`
-
-获取后端版本与构建哈希。
-
-```typescript
-const { version, hash } = await rpc.getBackendVersion()
-```
-
-#### `getNodesLatestStatus(uuid?: string, uuids?: string[]): Promise<Record<string, NodeStatus>>`
-
-获取节点最新运行状态。
-
-```typescript
-// 获取所有节点状态
-const allStatus = await rpc.getNodesLatestStatus()
-
-// 获取单个节点状态
-const status = await rpc.getNodesLatestStatus('uuid-xxx')
-
-// 获取多个节点状态
-const multiStatus = await rpc.getNodesLatestStatus(undefined, ['uuid-1', 'uuid-2'])
-```
-
-#### `getMe(): Promise<MeInfo>`
-
-获取当前登录用户信息。
-
-```typescript
-const me = await rpc.getMe()
-// {
-//   logged_in: true,
-//   username: 'user',
-//   uuid: 'user-uuid',
-//   ...
-// }
-```
-
-#### `getNodeRecentStatus(uuid: string): Promise<RecentStatusResp>`
-
-获取指定节点的最近状态记录列表。
-
-```typescript
-const { count, records } = await rpc.getNodeRecentStatus('uuid-xxx')
-```
-
-#### `getRecords(params: GetRecordsParams): Promise<...>`
-
-获取历史记录（负载或 Ping），支持多种参数组合。
-
-```typescript
-// 获取负载记录
-const loadRecords = await rpc.getRecords({
-  type: 'load',
-  uuid: 'uuid-xxx',
+const result = await rpc.queryMetrics({
+  metric_keys: ['cpu.usage', 'memory.used'],
+  entity_id: uuid,
   hours: 24,
-  load_type: 'cpu',
+  downsample: true,
+  fill_empty: true,
+  max_points: 600,
+  aggregation: 'avg',
 })
 
-// 获取 Ping 记录
-const pingRecords = await rpc.getRecords({
-  type: 'ping',
-  hours: 1,
-  task_id: -1,
-})
-```
-
-#### `getLoadRecords(uuid?, hours?, loadType?, maxCount?): Promise<LoadRecordsResult | LoadRecordsMapResult>`
-
-便捷方法：获取负载历史记录。
-
-```typescript
-// 获取所有节点最近 1 小时的负载记录
-const records = await rpc.getLoadRecords()
-
-// 获取指定节点最近 24 小时的 CPU 记录
-const cpuRecords = await rpc.getLoadRecords('uuid-xxx', 24, 'cpu')
-```
-
-#### `getPingRecords(taskId?, hours?, maxCount?): Promise<PingRecordsResult>`
-
-便捷方法：获取 Ping 历史记录。
-
-```typescript
-// 获取所有任务最近 1 小时的 Ping 记录
-const pingRecords = await rpc.getPingRecords()
-```
-
-## 类型定义
-
-### Client 节点信息
-
-```typescript
-interface Client {
-  uuid: string
-  name: string
-  cpu_name: string
-  virtualization: string
-  arch: string
-  cpu_cores: number
-  os: string
-  kernel_version: string
-  gpu_name?: string
-  ipv4?: string
-  ipv6?: string
-  region: string
-  public_remark: string
-  mem_total: number // 字节
-  swap_total: number // 字节
-  disk_total: number // 字节
-  weight: number
-  price: number
-  billing_cycle: number
-  auto_renewal: boolean
-  currency: string
-  expired_at: string
-  group: string
-  tags: string
-  hidden: boolean
-  traffic_limit: number
-  traffic_limit_type: string
-  created_at: string
-  updated_at: string
-}
-```
-
-### NodeStatus 节点状态
-
-```typescript
-interface NodeStatus {
-  client: string
-  time: string
-  cpu: number // 百分比 0-100
-  gpu: number // 百分比 0-100
-  ram: number // 已用字节
-  ram_total: number // 总量字节
-  swap: number
-  swap_total: number
-  load: number // 1分钟负载
-  load5: number // 5分钟负载
-  load15: number // 15分钟负载
-  temp: number // 温度
-  disk: number
-  disk_total: number
-  net_in: number // 入网速 字节/秒
-  net_out: number // 出网速 字节/秒
-  net_total_up: number
-  net_total_down: number
-  process: number
-  connections: number
-  connections_udp: number
-  online: boolean
-}
-```
-
-### MeInfo 用户信息
-
-```typescript
-interface MeInfo {
-  '2fa_enabled': boolean
-  'logged_in': boolean
-  'sso_id': string
-  'sso_type': string
-  'username': string
-  'uuid': string
-}
-```
-
-## 错误处理
-
-SDK 使用 `RpcError` 类封装错误：
-
-```typescript
-import { RpcError } from '@/utils/rpc'
-
-try {
-  const result = await rpc.getNodes('invalid-uuid')
-}
-catch (error) {
-  if (error instanceof RpcError) {
-    console.error('RPC Error:', error.code, error.message)
-    console.error('Error data:', error.data)
-  }
-}
-```
-
-### 错误码
-
-| 错误码 | 说明                 |
-| ------ | -------------------- |
-| -32000 | 网络错误/HTTP 错误   |
-| -32001 | 请求超时             |
-| 其他   | 服务端返回的业务错误 |
-
-## WebSocket 模式
-
-WebSocket 模式适用于需要频繁调用的场景，可以减少连接开销：
-
-```typescript
-const rpc = new KomariRpc({ useWebSocket: true })
-
-// 或者动态切换
-rpc.getClient().setTransport(true)
-
-// 关闭 WebSocket 连接
-rpc.close()
-```
-
-## 单例管理
-
-```typescript
-import { getSharedRpc, resetSharedRpc } from '@/utils/rpc'
-
-// 获取共享实例
-const rpc = getSharedRpc()
-
-// 重置共享实例（关闭连接并清除）
-resetSharedRpc()
-```
-
-## 最佳实践
-
-### 1. 在 Vue 组件中使用
-
-```typescript
-import { getSharedRpc } from '@/utils/rpc'
-
-const rpc = getSharedRpc()
-
-onMounted(async () => {
-  const nodes = await rpc.getNodes()
-  // ...
+const ping = await rpc.getPingMetricStats({
+  entity_id: uuid,
+  hours: 24,
+  max_points: 600,
 })
 ```
 
-### 2. 使用 VueUse 的 useAsyncState
+兼容规则：
 
-```typescript
-import { useAsyncState } from '@vueuse/core'
-import { getSharedRpc } from '@/utils/rpc'
+- 只有 JSON-RPC `-32601 Method not found` 才表示能力不存在并允许回退。
+- 网络、鉴权、数据库或参数错误不能被旧接口掩盖。
+- `retention_days = 0` 表示该指标历史记录已关闭。
+- `queryMetrics` 的点值可能为 `null`，不能转换成 `0`。
+- 使用服务端返回的 `interval_seconds`，新路径不再执行客户端二次降采样。
+- Ping 延迟指标是 `ping.latency_ms`，丢包指标是 `ping.loss`。
+- Ping 统计字段可能为 `null`，并可能带 `loss_approximate`。
 
-const rpc = getSharedRpc()
+Komari 1.2.5 及更旧版本缺少指标方法时，主题才回退到 `common:getRecords` 或兼容 REST 记录接口。
 
-const { state: nodes, isLoading, error } = useAsyncState(
-  () => rpc.getNodes(),
-  {},
-)
+## 历史记录兼容方法
+
+```ts
+await rpc.getLoadRecords(uuid, 24, undefined, 500)
+await rpc.getPingRecords(taskId, 24, 500)
 ```
 
-### 3. 在 Pinia Store 中使用
+注意：
 
-```typescript
-import { defineStore } from 'pinia'
-import { getSharedRpc } from '@/utils/rpc'
+- `common:getRecords` 的数量参数是 `maxCount`，不是 `max_count`。
+- load 响应的 `records` 是 `Record<string, StatusRecord[]>`。
+- 这些方法主要用于旧版回退；新版主题页面优先使用指标接口。
 
-export const useNodeStore = defineStore('node', () => {
-  const rpc = getSharedRpc()
-  const nodes = ref<Record<string, Client>>({})
+## WebSocket 生命周期
 
-  async function fetchNodes() {
-    nodes.value = await rpc.getNodes() as Record<string, Client>
-  }
+```ts
+const client = rpc.getClient()
 
-  return { nodes, fetchNodes }
+client.setTransport(true)
+await client.ensureWebSocketConnectedWithPing(10_000)
+
+const unsubscribe = client.onWebSocketClose(() => {
+  // 更新连接状态或安排重连
 })
+
+unsubscribe()
+client.setTransport(false)
 ```
 
-## 参考文档
+不要覆盖客户端内部的 `onclose` / `onerror`。客户端会：
 
-- [Komari RPC2 接口文档](https://www.komari.wiki/dev/rpc.html)
-- [JSON-RPC 2.0 规范](https://www.jsonrpc.org/specification)
+- 限制握手和请求总时长；
+- 断线时拒绝当前 socket 的 pending 请求；
+- 忽略旧 socket 的迟到关闭事件；
+- 在主动切换到 HTTP 或关闭时停止使用 WebSocket。
+
+Komari 在 WebSocket 握手时固定调用者身份。登录态变化后必须关闭旧连接，再以新会话重连。
+
+## 错误分类
+
+```ts
+import {
+  isRpcAuthenticationError,
+  isRpcMethodUnavailable,
+  RpcError,
+  RpcTransportError,
+} from '@/utils/rpc'
+```
+
+- `RpcError`：服务端 JSON-RPC 业务错误。
+- `RpcTransportError`：网络、HTTP、协议、超时或连接关闭错误。
+- `isRpcMethodUnavailable()`：只判断方法不存在。
+- `isRpcAuthenticationError()`：识别 401、`-32040`，以及明确提示 private/login 的 `-32041`；普通权限错误不会被误判为登录失效。
+
+## 验证
+
+仓库没有测试套件。修改此客户端后至少运行：
+
+```powershell
+pnpm lint
+pnpm build
+```

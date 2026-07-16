@@ -45,7 +45,15 @@ interface InfoItem {
 
 /** 硬件信息 */
 const hardwareInfo = computed<InfoItem[]>(() => [
-  { label: 'CPU', value: data.value ? `${data.value.cpu_name} (x${data.value.cpu_cores})` : '-', icon: 'i-icon-park-outline-cpu' },
+  {
+    label: 'CPU',
+    value: data.value
+      ? `${data.value.cpu_name} (${data.value.cpu_physical_cores && data.value.cpu_physical_cores !== data.value.cpu_cores
+        ? `${data.value.cpu_physical_cores} 核 / ${data.value.cpu_cores} 线程`
+        : `${data.value.cpu_cores} 核`})`
+      : '-',
+    icon: 'i-icon-park-outline-cpu',
+  },
   { label: '架构', value: data.value?.arch ?? '-', icon: 'i-icon-park-outline-application-two' },
   { label: '虚拟化', value: data.value?.virtualization ?? '-', icon: 'i-icon-park-outline-server' },
   { label: 'GPU', value: data.value?.gpu_name || '-', icon: 'i-icon-park-outline-video-one' },

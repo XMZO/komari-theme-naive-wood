@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { RecordFormat } from '@/utils/recordHelper'
-import type { StatusRecord } from '@/utils/rpc'
+import type { MetricDefinition, StatusRecord } from '@/utils/rpc'
 import { useIntervalFn } from '@vueuse/core'
 import dayjs from 'dayjs'
 import { NButton, NCard, NEmpty, NSpin } from 'naive-ui'
@@ -10,6 +10,16 @@ import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytes, formatBytesSplit } from '@/utils/helper'
+import {
+  getEnabledMetricKeys,
+  getMetricDefinitions,
+  getMetricRetentionHours,
+  LOAD_HISTORY_METRIC_KEYS,
+  LOAD_RETENTION_METRIC_KEYS,
+  mergeLoadMetricSeries,
+  METRIC_KEYS,
+  queryMetricsIfSupported,
+} from '@/utils/metrics'
 import { fillMissingTimePoints } from '@/utils/recordHelper'
 import { getSharedRpc } from '@/utils/rpc'
 import '@/utils/echarts' // 共享 ECharts 配置
@@ -21,8 +31,18 @@ const props = defineProps<{
 const appStore = useAppStore()
 const nodesStore = useNodesStore()
 
-// 从 publicSettings 获取记录保留时间
-const maxRecordPreserveTime = computed(() => appStore.publicSettings?.record_preserve_time || 720)
+const metricDefinitions = shallowRef<MetricDefinition[] | null | undefined>(undefined)
+
+// 新版按实际展示指标取共同可用窗口；旧版只在能力不存在时回退兼容字段。
+const maxRecordPreserveTime = computed(() => {
+  if (Array.isArray(metricDefinitions.value)) {
+    return getMetricRetentionHours(metricDefinitions.value, LOAD_RETENTION_METRIC_KEYS)
+  }
+  if (metricDefinitions.value === null) {
+    return appStore.publicSettings?.record_preserve_time ?? 720
+  }
+  return 0
+})
 
 // 从 publicSettings.theme_settings 获取数据更新间隔（秒），默认 3 秒
 const dataUpdateInterval = computed(() => {
@@ -145,8 +165,19 @@ const selectedHours = computed(() => {
 })
 const isRealtime = computed(() => selectedView.value === '实时')
 
+function hasHistoricalMetric(...metricKeys: string[]): boolean {
+  if (isRealtime.value || metricDefinitions.value === null)
+    return true
+  if (!Array.isArray(metricDefinitions.value))
+    return false
+  const wanted = new Set(metricKeys)
+  return metricDefinitions.value.some(definition => wanted.has(definition.name) && definition.retention_days > 0)
+}
+
 // 数据状态
-const remoteData = shallowRef<StatusRecord[]>([])
+const remoteData = shallowRef<RecordFormat[]>([])
+const historySource = ref<'metric' | 'legacy'>('legacy')
+const historyIntervalSeconds = ref<number | null>(null)
 const loading = ref(false)
 const isInitialLoad = ref(true) // 是否为首次加载（用于控制实时模式下的 NSpin 显示）
 const error = ref<string | null>(null)
@@ -159,7 +190,7 @@ const rpc = getSharedRpc()
 
 // ==================== 数据获取 ====================
 
-function statusToRecordFormat(records: StatusRecord[]): RecordFormat[] {
+function statusToRecordFormat(records: StatusRecord[], connectionsIncludeUdp = false): RecordFormat[] {
   return records.map(r => ({
     client: r.client,
     time: r.time,
@@ -180,7 +211,11 @@ function statusToRecordFormat(records: StatusRecord[]): RecordFormat[] {
     net_total_up: r.net_total_up ?? null,
     net_total_down: r.net_total_down ?? null,
     process: r.process ?? null,
-    connections: r.connections ?? null,
+    connections: r.connections == null
+      ? null
+      : connectionsIncludeUdp
+        ? Math.max(0, r.connections - (r.connections_udp ?? 0))
+        : r.connections,
     connections_udp: r.connections_udp ?? null,
   }))
 }
@@ -200,7 +235,8 @@ async function fetchRecentData() {
     const records = result?.records || []
     records.sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf())
     const maxLength = 150
-    remoteData.value = records.slice(-maxLength)
+    remoteData.value = statusToRecordFormat(records.slice(-maxLength), true)
+    historyIntervalSeconds.value = null
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : '获取数据失败'
@@ -222,22 +258,57 @@ async function fetchHistoryData() {
   error.value = null
 
   try {
-    const apiBase = import.meta.env.VITE_API_BASE
-    const response = await fetch(`${apiBase}/records/load?uuid=${props.uuid}&hours=${hours}`)
+    if (Array.isArray(metricDefinitions.value)) {
+      const metricKeys = getEnabledMetricKeys(metricDefinitions.value, LOAD_HISTORY_METRIC_KEYS)
+      if (metricKeys.length === 0) {
+        historySource.value = 'metric'
+        remoteData.value = []
+        return
+      }
 
-    if (!response.ok) {
-      throw new Error(`HTTP error: ${response.status}`)
+      const metricResponse = await queryMetricsIfSupported({
+        metric_keys: metricKeys,
+        entity_id: props.uuid,
+        hours,
+        downsample: true,
+        fill_empty: true,
+        max_points: 600,
+        aggregation: 'avg',
+        aggregation_by_metric: {
+          [METRIC_KEYS.ramTotal]: 'last',
+          [METRIC_KEYS.swapTotal]: 'last',
+          [METRIC_KEYS.diskTotal]: 'last',
+        },
+      })
+      if (metricResponse) {
+        historySource.value = 'metric'
+        remoteData.value = mergeLoadMetricSeries(metricResponse, props.uuid)
+        const intervals = metricResponse.series
+          .map(series => series.interval_seconds)
+          .filter((interval): interval is number => typeof interval === 'number' && interval > 0)
+        historyIntervalSeconds.value = intervals.length > 0 ? Math.min(...intervals) : null
+        return
+      }
     }
 
+    historySource.value = 'legacy'
+    historyIntervalSeconds.value = null
+    const apiBase = import.meta.env.VITE_API_BASE || '/api'
+    const response = await fetch(`${apiBase}/records/load?uuid=${props.uuid}&hours=${hours}`, {
+      credentials: 'include',
+    })
+    if (!response.ok)
+      throw new Error(`HTTP error: ${response.status}`)
+
     const resp = await response.json()
-    const records = resp.data?.records || []
+    const records: StatusRecord[] = resp.data?.records || []
 
     // 按时间排序
     records.sort((a: StatusRecord, b: StatusRecord) =>
       dayjs(a.time).valueOf() - dayjs(b.time).valueOf(),
     )
 
-    remoteData.value = records
+    remoteData.value = statusToRecordFormat(records)
   }
   catch (err) {
     error.value = err instanceof Error ? err.message : '获取数据失败'
@@ -260,11 +331,11 @@ async function fetchData() {
 // ==================== 数据处理 ====================
 
 const chartData = computed(() => {
-  const data = statusToRecordFormat(remoteData.value)
+  const data = remoteData.value
   if (!data.length)
     return []
 
-  if (isRealtime.value) {
+  if (isRealtime.value || historySource.value === 'metric') {
     return data
   }
 
@@ -294,7 +365,42 @@ const latestStatus = computed(() => {
   const data = remoteData.value
   if (!data.length)
     return null
-  return data[data.length - 1]
+
+  const last = data[data.length - 1]
+  if (!last)
+    return null
+  const latest = { ...last }
+  const numericFields: Array<keyof RecordFormat> = [
+    'cpu',
+    'gpu',
+    'ram',
+    'ram_total',
+    'swap',
+    'swap_total',
+    'load',
+    'temp',
+    'disk',
+    'disk_total',
+    'net_in',
+    'net_out',
+    'net_total_up',
+    'net_total_down',
+    'process',
+    'connections',
+    'connections_udp',
+  ]
+  for (const field of numericFields) {
+    if (latest[field] != null)
+      continue
+    for (let index = data.length - 2; index >= 0; index--) {
+      const value = data[index]?.[field]
+      if (value != null) {
+        ;(latest as unknown as Record<string, unknown>)[field] = value
+        break
+      }
+    }
+  }
+  return latest
 })
 
 // ==================== 工具函数 ====================
@@ -325,6 +431,9 @@ const baseXAxisConfig = computed(() => ({
     fontSize: 11,
     color: chartThemeColors.value.textSecondary,
     margin: 12,
+    interval: historySource.value === 'metric' && historyIntervalSeconds.value
+      ? Math.max(0, Math.ceil(((selectedHours.value ?? 1) * 3600 / historyIntervalSeconds.value) / 8) - 1)
+      : 'auto',
   },
   axisLine: {
     show: true,
@@ -498,7 +607,7 @@ const memoryChartOption = computed(() => ({
     {
       name: 'RAM',
       type: 'line',
-      data: chartData.value.map(r => r.ram ?? 0),
+      data: chartData.value.map(r => r.ram),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.primary, cap: 'round' as const },
@@ -519,7 +628,7 @@ const memoryChartOption = computed(() => ({
     {
       name: 'Swap',
       type: 'line',
-      data: chartData.value.map(r => r.swap ?? 0),
+      data: chartData.value.map(r => r.swap),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.secondary, cap: 'round' as const },
@@ -573,7 +682,7 @@ const diskChartOption = computed(() => ({
     {
       name: '磁盘已用',
       type: 'line',
-      data: chartData.value.map(r => r.disk ?? 0),
+      data: chartData.value.map(r => r.disk),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.tertiary, cap: 'round' as const },
@@ -648,7 +757,7 @@ const networkChartOption = computed(() => ({
     {
       name: '下载',
       type: 'line',
-      data: chartData.value.map(r => r.net_in ?? 0),
+      data: chartData.value.map(r => r.net_in),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.quinary, cap: 'round' as const },
@@ -656,7 +765,7 @@ const networkChartOption = computed(() => ({
     {
       name: '上传',
       type: 'line',
-      data: chartData.value.map(r => r.net_out ?? 0),
+      data: chartData.value.map(r => r.net_out),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.quaternary, cap: 'round' as const },
@@ -719,7 +828,7 @@ const connectionsChartOption = computed(() => ({
     {
       name: 'TCP',
       type: 'line',
-      data: chartData.value.map(r => r.connections ?? 0),
+      data: chartData.value.map(r => r.connections),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.primary, cap: 'round' as const },
@@ -727,7 +836,7 @@ const connectionsChartOption = computed(() => ({
     {
       name: 'UDP',
       type: 'line',
-      data: chartData.value.map(r => r.connections_udp ?? 0),
+      data: chartData.value.map(r => r.connections_udp),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.tertiary, cap: 'round' as const },
@@ -779,7 +888,7 @@ const processChartOption = computed(() => ({
     {
       name: '进程数',
       type: 'line',
-      data: chartData.value.map(r => r.process ?? 0),
+      data: chartData.value.map(r => r.process),
       smooth: 0.6,
       showSymbol: false,
       lineStyle: { width: 2.5, color: chartColors.quaternary, cap: 'round' as const },
@@ -803,21 +912,11 @@ const processChartOption = computed(() => ({
 // ==================== 实时更新 ====================
 
 // 使用 VueUse 的 useIntervalFn 自动管理定时器
-const { pause: pauseRealtimeUpdate, resume: resumeRealtimeUpdate } = useIntervalFn(
+useIntervalFn(
   () => fetchData(),
   dataUpdateInterval,
   { immediate: false },
 )
-
-// 根据是否为实时模式控制定时器
-watch(isRealtime, (realtime) => {
-  if (realtime) {
-    resumeRealtimeUpdate()
-  }
-  else {
-    pauseRealtimeUpdate()
-  }
-}, { immediate: true })
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'))
 
@@ -828,14 +927,28 @@ watch(selectedView, () => {
   fetchData()
 })
 
+watch(availableViews, (views) => {
+  if (!views.some(view => view.label === selectedView.value)) {
+    selectedView.value = '实时'
+  }
+})
+
 watch(() => props.uuid, () => {
   remoteData.value = []
   isInitialLoad.value = true // 切换节点时重置首次加载状态
   fetchData()
 })
 
-onMounted(() => {
-  fetchData()
+onMounted(async () => {
+  const definitionsPromise = getMetricDefinitions()
+    .then((definitions) => {
+      metricDefinitions.value = definitions
+    })
+    .catch((definitionError) => {
+      console.error('[LoadChart] Failed to load metric definitions:', definitionError)
+    })
+
+  await Promise.all([fetchData(), definitionsPromise])
 })
 </script>
 
@@ -878,8 +991,11 @@ onMounted(() => {
                 <span v-else style="color: var(--n-text-color-3)">-</span>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.cpu, METRIC_KEYS.load)" class="h-48">
               <VChart :option="cpuChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="CPU 与负载历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>
@@ -905,8 +1021,11 @@ onMounted(() => {
                 </div>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.ram, METRIC_KEYS.swap)" class="h-48">
               <VChart :option="memoryChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="内存历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>
@@ -932,8 +1051,11 @@ onMounted(() => {
                 </div>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.disk)" class="h-48">
               <VChart :option="diskChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="磁盘历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>
@@ -961,8 +1083,11 @@ onMounted(() => {
                 </div>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.netIn, METRIC_KEYS.netOut)" class="h-48">
               <VChart :option="networkChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="网络历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>
@@ -982,8 +1107,11 @@ onMounted(() => {
                 </div>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.connectionsTcp, METRIC_KEYS.connectionsUdp)" class="h-48">
               <VChart :option="connectionsChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="连接数历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>
@@ -999,8 +1127,11 @@ onMounted(() => {
                 </span>
               </div>
             </template>
-            <div class="h-48">
+            <div v-if="hasHistoricalMetric(METRIC_KEYS.process)" class="h-48">
               <VChart :option="processChartOption" autoresize />
+            </div>
+            <div v-else class="flex h-48 items-center justify-center">
+              <NEmpty size="small" description="进程历史记录已禁用" />
             </div>
           </NCard>
         </LiquidGlassSurface>

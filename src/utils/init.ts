@@ -1,46 +1,53 @@
 /**
- * 应用初始化模块
- * 负责应用启动时的初始化流程和 WebSocket 连接管理
+ * 应用初始化、认证状态与 RPC 传输生命周期管理。
  */
 
+import type { MeInfo, PublicSettings } from '@/utils/api'
 import type { Client, KomariRpc, NodeStatus } from '@/utils/rpc'
 import { h } from 'vue'
 import LoginDialog from '@/components/LoginDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
-import { getSharedApi } from '@/utils/api'
-import { getSharedRpc, RpcError } from '@/utils/rpc'
+import { ApiError, getSharedApi } from '@/utils/api'
+import { getSharedRpc, isRpcAuthenticationError, RpcTransportError } from '@/utils/rpc'
+import { configureVisitorAudit, recordCurrentPageView } from '@/utils/visitorAudit'
 
-/** 初始化配置 */
 interface InitConfig {
-  /** WebSocket 重连间隔（毫秒） */
   wsReconnectInterval?: number
-  /** WebSocket 最大重连次数（失败后回落 POST） */
   wsMaxReconnectAttempts?: number
-  /** 后端健康检查超时（毫秒） */
-  healthCheckTimeout?: number
-  /** POST 模式连续失败次数阈值 */
   postFailureThreshold?: number
+  sessionCheckInterval?: number
 }
 
 const DEFAULT_CONFIG: Required<InitConfig> = {
   wsReconnectInterval: 3000,
   wsMaxReconnectAttempts: 5,
-  healthCheckTimeout: 5000,
   postFailureThreshold: 3,
+  sessionCheckInterval: 60000,
 }
 
-/** 初始化状态管理 */
+type InitState = 'idle' | 'bootstrapping' | 'awaiting-auth' | 'running' | 'destroyed'
+
 class InitManager {
   private config: Required<InitConfig>
   private rpc: KomariRpc
   private appStore: ReturnType<typeof useAppStore>
   private nodesStore: ReturnType<typeof useNodesStore>
+  private state: InitState = 'idle'
   private pollTimer: ReturnType<typeof setInterval> | null = null
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  private sessionCheckTimer: ReturnType<typeof setInterval> | null = null
+  private unsubscribeWsClose: (() => void) | null = null
+  private unsubscribeWsError: (() => void) | null = null
   private isPolling = false
-  private isInitialized = false
-  private useWebSocket: boolean | null = null // 根据主题配置决定
+  private isCheckingSession = false
+  private useWebSocket = false
   private postFailureCount = 0
+  private loginModalShown = false
+  private transportGeneration = 0
+  private lifecycleGeneration = 0
+  private authTransitionPromise: Promise<void> | null = null
+  private loginReconnectPromise: Promise<void> | null = null
 
   constructor(config: InitConfig = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config }
@@ -49,91 +56,152 @@ class InitManager {
     this.nodesStore = useNodesStore()
   }
 
-  /**
-   * 获取轮询间隔（毫秒）
-   * 从 publicSettings.theme_settings.dataUpdateInterval 读取，默认 3 秒
-   */
   private getPollInterval(): number {
-    const settings = this.appStore.publicSettings?.theme_settings
-    const interval = settings?.dataUpdateInterval
-    // 确保值在合理范围内（1-60秒）
+    const interval = this.appStore.publicSettings?.theme_settings?.dataUpdateInterval
     if (typeof interval === 'number' && interval >= 1 && interval <= 60) {
-      return interval * 1000 // 转换为毫秒
+      return interval * 1000
     }
-    return 3000 // 默认 3 秒
+    return 3000
   }
 
-  /**
-   * 执行初始化流程
-   */
+  private beginLifecycleOperation(): number {
+    return ++this.lifecycleGeneration
+  }
+
+  private isLifecycleCurrent(generation: number): boolean {
+    return generation === this.lifecycleGeneration && this.state !== 'destroyed'
+  }
+
+  private isLegacyPrivateSiteBootstrapError(error: unknown): boolean {
+    return error instanceof ApiError
+      && error.httpStatus === 401
+      && /private site.*login|please login first/i.test(error.message)
+  }
+
   async init(): Promise<void> {
-    if (this.isInitialized) {
-      console.warn('[InitManager] Already initialized')
+    if (this.state === 'running' || this.state === 'bootstrapping' || this.state === 'awaiting-auth') {
       return
     }
+    if (this.state === 'destroyed') {
+      throw new Error('InitManager has been destroyed')
+    }
+
+    this.state = 'bootstrapping'
+    this.appStore.loading = true
+    this.appStore.connectionError = false
+    const generation = this.beginLifecycleOperation()
 
     try {
-      // 1. 测试后端服务是否正常
-      await this.healthCheck()
-
-      // 2. 获取服务端公开属性
-      await this.fetchPublicSettings()
-
-      // 3. 获取用户信息
-      await this.fetchUserInfo()
-
-      // 4. 获取节点信息和最新状态
-      await this.fetchNodesData()
-
-      // 5. 解除加载状态
-      this.appStore.loading = false
-
-      // 6. 建立 WebSocket 连接并开始轮询
-      this.startWebSocketAndPolling()
-
-      this.isInitialized = true
+      const context = await this.fetchBootstrapContext()
+      if (!this.isLifecycleCurrent(generation))
+        return
+      this.applyBootstrapContext(context)
+      const { publicSettings, userInfo } = context
+      if (this.requiresAuthentication(publicSettings, userInfo)) {
+        this.enterAwaitingAuthentication()
+        return
+      }
+      await this.finishInitialization(generation)
     }
     catch (error) {
+      if (!this.isLifecycleCurrent(generation))
+        return
       console.error('[InitManager] Initialization failed:', error)
-      // 即使失败也解除加载状态，显示错误页面
+      this.state = 'idle'
       this.appStore.loading = false
+      this.appStore.connectionError = true
       throw error
     }
   }
 
-  /**
-   * 健康检查 - 测试后端服务是否正常
-   * 如果返回 401，说明是私有站点，需要强制登录
-   */
-  private async healthCheck(): Promise<void> {
-    try {
-      const result = await this.rpc.ping()
-      if (result !== 'pong') {
-        throw new RpcError(-32000, 'Unexpected health check response')
+  private async fetchBootstrapContext(): Promise<{ publicSettings: PublicSettings, userInfo: MeInfo }> {
+    const api = getSharedApi()
+    const publicSettingsPromise = api.getPublicSettings().catch((error): PublicSettings => {
+      // Komari 1.2.5 及部分旧版私有站点会把登录页元信息接口也挡成 401。
+      // 此时无法得知实际登录方式，因此同时保留密码与 OAuth 入口，登录后再刷新真配置。
+      if (this.isLegacyPrivateSiteBootstrapError(error)) {
+        return {
+          sitename: 'Komari',
+          description: '',
+          custom_head: '',
+          custom_body: '',
+          disable_password_login: false,
+          oauth_enable: true,
+          oauth_provider: null,
+          private_site: true,
+          theme: '',
+          theme_settings: null,
+        } satisfies PublicSettings
       }
+      throw error
+    })
+    const userInfoPromise = api.getMe().catch((error) => {
+      // 兼容更旧的私有站点：/api/me 可能直接返回 401。
+      if (this.isLegacyPrivateSiteBootstrapError(error)) {
+        return { username: 'Guest', logged_in: false } satisfies MeInfo
+      }
+      throw error
+    })
+
+    const [publicSettings, userInfo] = await Promise.all([publicSettingsPromise, userInfoPromise])
+    return { publicSettings, userInfo }
+  }
+
+  private applyBootstrapContext(context: { publicSettings: PublicSettings, userInfo: MeInfo }): void {
+    this.appStore.publicSettings = context.publicSettings
+    configureVisitorAudit(context.publicSettings.visitor_audit_enabled === true)
+    recordCurrentPageView()
+    this.applyUserInfo(context.userInfo)
+  }
+
+  private applyUserInfo(userInfo: MeInfo): void {
+    if (userInfo.logged_in) {
+      this.appStore.setUserInfo(userInfo)
     }
-    catch (error) {
-      // 检查是否为 401 错误（私有站点需要登录）
-      if (error instanceof RpcError && error.code === 401) {
-        console.warn('[InitManager] Private site detected, requiring login')
-        this.appStore.requireLogin = true
-        this.showForceLoginModal()
-        return
-      }
-      console.error('[InitManager] Health check failed:', error)
-      this.appStore.connectionError = true
-      throw new Error('Backend service unavailable')
+    else {
+      this.appStore.clearUserInfo()
+      this.appStore.userInfo = userInfo
     }
   }
 
-  /**
-   * 显示强制登录 Modal
-   * 用于私有站点，用户必须登录才能访问
-   */
-  private showForceLoginModal(): void {
-    // 解除加载状态
-    this.appStore.loading = false
+  private requiresAuthentication(publicSettings: PublicSettings, userInfo: MeInfo): boolean {
+    return Boolean(publicSettings.private_site && !userInfo.logged_in)
+  }
 
+  private getUserIdentity(userInfo: MeInfo | undefined): string {
+    if (!userInfo?.logged_in)
+      return ''
+    return userInfo.uuid || `${userInfo.sso_type ?? ''}:${userInfo.sso_id ?? ''}:${userInfo.username}`
+  }
+
+  private async finishInitialization(generation: number): Promise<void> {
+    const nodesData = await this.fetchNodesData()
+    if (!this.isLifecycleCurrent(generation))
+      return
+    this.nodesStore.initNodes(nodesData.clients, nodesData.statuses)
+    this.state = 'running'
+    this.appStore.requireLogin = false
+    this.appStore.loading = false
+    this.appStore.connectionError = false
+    this.startTransportAndPolling()
+  }
+
+  private enterAwaitingAuthentication(): void {
+    this.stopTransportAndPolling()
+    this.state = 'awaiting-auth'
+    this.appStore.requireLogin = true
+    this.appStore.loading = false
+    this.appStore.connectionError = false
+    this.appStore.clearUserInfo()
+    this.nodesStore.clearNodes()
+    this.showForceLoginModal()
+  }
+
+  private showForceLoginModal(): void {
+    if (this.loginModalShown)
+      return
+
+    this.loginModalShown = true
     window.$modal.create({
       title: '登录',
       preset: 'dialog',
@@ -143,286 +211,298 @@ class InitManager {
       closable: false,
       autoFocus: true,
       content: () => h(LoginDialog, {
-        forceLogin: true,
         onLoginSuccess: () => {
-          // 登录成功后重新初始化
-          this.reinitAfterForceLogin()
+          this.loginModalShown = false
         },
       }),
     })
   }
 
-  /**
-   * 强制登录成功后重新初始化
-   */
-  private async reinitAfterForceLogin(): Promise<void> {
-    // 重置登录要求状态
-    this.appStore.requireLogin = false
-
-    // 关闭登录 Modal
-    window.$modal?.destroyAll()
-
-    try {
-      // 重新执行初始化流程
-      await this.fetchPublicSettings()
-      await this.fetchUserInfo()
-      await this.fetchNodesData()
-
-      // 解除加载状态
-      this.appStore.loading = false
-
-      // 建立 WebSocket 连接并开始轮询
-      this.startWebSocketAndPolling()
-
-      this.isInitialized = true
-    }
-    catch (error) {
-      console.error('[InitManager] Re-initialization after login failed:', error)
-      this.appStore.connectionError = true
-    }
+  private async fetchNodesData(): Promise<{
+    clients: Record<string, Client>
+    statuses: Record<string, NodeStatus>
+  }> {
+    const [clientsResult, statusesResult] = await Promise.all([
+      this.rpc.getNodes() as Promise<Record<string, Client>>,
+      this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
+    ])
+    return { clients: clientsResult, statuses: statusesResult }
   }
 
-  /**
-   * 获取服务端公开属性
-   */
-  private async fetchPublicSettings(): Promise<void> {
-    try {
-      const api = getSharedApi()
-      const publicSettings = await api.getPublicSettings()
-      this.appStore.publicSettings = publicSettings
-    }
-    catch (error) {
-      console.error('[InitManager] Failed to fetch public settings:', error)
-      // 非关键错误，继续初始化
-    }
-  }
+  private startTransportAndPolling(): void {
+    this.stopTransportAndPolling()
+    const generation = ++this.transportGeneration
+    const client = this.rpc.getClient()
+    this.postFailureCount = 0
+    this.nodesStore.updateWsState('disconnected', 0)
 
-  /**
-   * 获取用户信息
-   */
-  private async fetchUserInfo(): Promise<void> {
-    try {
-      const api = getSharedApi()
-      const userInfo = await api.getMe()
-      this.appStore.setUserInfo(userInfo)
-    }
-    catch (error) {
-      console.error('[InitManager] Failed to fetch user info:', error)
-      // 非关键错误，继续初始化
-    }
-  }
+    this.unsubscribeWsClose = client.onWebSocketClose(() => {
+      if (generation !== this.transportGeneration || this.state !== 'running' || !this.useWebSocket)
+        return
+      this.nodesStore.updateWsState('disconnected')
+      this.scheduleReconnect(generation)
+    })
+    this.unsubscribeWsError = client.onWebSocketError(() => {
+      if (generation === this.transportGeneration && this.state === 'running') {
+        console.error('[InitManager] WebSocket error')
+      }
+    })
 
-  /**
-   * 获取节点数据和最新状态
-   */
-  private async fetchNodesData(): Promise<void> {
-    try {
-      // 并行获取节点信息和最新状态
-      const [clientsResult, statusesResult] = await Promise.all([
-        this.rpc.getNodes() as Promise<Record<string, Client>>,
-        this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
-      ])
-
-      // 初始化节点数据
-      this.nodesStore.initNodes(clientsResult, statusesResult)
-    }
-    catch (error) {
-      console.error('[InitManager] Failed to fetch nodes data:', error)
-      throw error
-    }
-  }
-
-  /**
-   * 启动 WebSocket 连接和轮询
-   */
-  private startWebSocketAndPolling(): void {
-    // 根据主题配置决定初始连接模式
-    const configuredMode = this.appStore.rpcTransportMode
-    this.useWebSocket = configuredMode === 'websocket'
-
+    this.useWebSocket = this.appStore.rpcTransportMode === 'websocket'
     if (this.useWebSocket) {
-      // 尝试建立 WebSocket 连接
-      this.connectWebSocket()
+      void this.connectWebSocket(generation)
     }
     else {
-      // HTTP 模式：直接设置 RPC 客户端为 HTTP 模式
-      const client = this.rpc.getClient()
       client.setTransport(false)
-      this.nodesStore.updateWsState('disconnected', this.config.wsMaxReconnectAttempts)
+      this.nodesStore.updateWsState('disconnected', 0)
     }
 
-    // 开始轮询（作为 WebSocket 的补充或备选方案）
     this.startPolling()
+    this.startSessionMonitoring()
   }
 
-  /**
-   * 建立 WebSocket 连接
-   */
-  private async connectWebSocket(): Promise<void> {
-    // 如果已回落到 POST 模式或配置为 HTTP 模式，不再尝试 WebSocket
-    if (this.useWebSocket === false) {
+  private async connectWebSocket(generation: number): Promise<void> {
+    if (generation !== this.transportGeneration || this.state !== 'running' || !this.useWebSocket)
       return
-    }
 
     const client = this.rpc.getClient()
-
-    // 切换到 WebSocket 模式
     client.setTransport(true)
     this.nodesStore.updateWsState('connecting', this.nodesStore.wsReconnectAttempts)
 
     try {
-      // 使用 ping 验证连接，10 秒超时
       await client.ensureWebSocketConnectedWithPing(10000)
+      if (generation !== this.transportGeneration || this.state !== 'running' || !this.useWebSocket)
+        return
       this.nodesStore.updateWsState('connected', 0)
-
-      // 连接成功，重置错误状态
       this.appStore.connectionError = false
-
-      // 监听连接状态变化
-      this.monitorWebSocketConnection()
     }
     catch (error) {
+      if (generation !== this.transportGeneration || this.state !== 'running' || !this.useWebSocket)
+        return
+      if (this.isAuthenticationFailure(error)) {
+        await this.handleAuthenticationChanged()
+        return
+      }
       console.error('[InitManager] WebSocket connection failed:', error)
       this.nodesStore.updateWsState('disconnected')
-      this.scheduleReconnect()
+      this.scheduleReconnect(generation)
     }
   }
 
-  /**
-   * 监控 WebSocket 连接状态
-   */
-  private monitorWebSocketConnection(): void {
-    const client = this.rpc.getClient()
-    const ws = client.getWebSocket()
-
-    if (!ws) {
+  private scheduleReconnect(generation: number): void {
+    if (this.reconnectTimer || generation !== this.transportGeneration || !this.useWebSocket)
       return
-    }
 
-    ws.onclose = () => {
-      // 如果当前是已连接状态且还在使用 WebSocket 模式，触发重连
-      if (this.useWebSocket === true && this.nodesStore.wsConnectionState === 'connected') {
-        this.nodesStore.updateWsState('disconnected')
-        this.scheduleReconnect()
-      }
-    }
-
-    ws.onerror = () => {
-      console.error('[InitManager] WebSocket error')
-    }
-  }
-
-  /**
-   * 安排重连
-   */
-  private scheduleReconnect(): void {
     const attempts = this.nodesStore.wsReconnectAttempts
-
-    // 达到最大重连次数，回落到 POST 模式
     if (attempts >= this.config.wsMaxReconnectAttempts) {
-      console.error('[InitManager] Max reconnect attempts reached, falling back to POST mode')
       this.fallbackToPostMode()
       return
     }
 
-    // 首次失败时显示提示
     if (attempts === 0) {
       window.$message?.error('WebSocket 建立失败，正在尝试重连。')
     }
-
     this.nodesStore.updateWsState('reconnecting', attempts + 1)
 
-    setTimeout(async () => {
-      try {
-        const client = this.rpc.getClient()
-        client.close()
-        await this.connectWebSocket()
-      }
-      catch (error) {
-        console.error('[InitManager] Reconnect failed:', error)
-        this.scheduleReconnect()
-      }
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null
+      void this.connectWebSocket(generation)
     }, this.config.wsReconnectInterval)
   }
 
-  /**
-   * 回落到 POST 模式
-   */
   private fallbackToPostMode(): void {
     this.useWebSocket = false
-    this.nodesStore.updateWsState('disconnected', this.config.wsMaxReconnectAttempts)
-
-    // 关闭 WebSocket 连接
+    this.clearReconnectTimer()
     const client = this.rpc.getClient()
     client.setTransport(false)
-    client.close()
-
-    // 显示提示
-    window.$message?.warning('WebSocket 无法连接，尝试回落 POST 模式。')
+    this.nodesStore.updateWsState('disconnected', this.config.wsMaxReconnectAttempts)
+    window.$message?.warning('WebSocket 无法连接，已回落到 HTTP 模式。')
+    void this.poll()
   }
 
-  /**
-   * 开始轮询
-   */
   private startPolling(): void {
-    if (this.pollTimer) {
-      clearInterval(this.pollTimer)
-    }
-
+    this.stopPolling()
     this.pollTimer = setInterval(() => {
-      this.poll()
+      void this.poll()
     }, this.getPollInterval())
   }
 
-  /**
-   * 执行轮询任务
-   */
   private async poll(): Promise<void> {
-    if (this.isPolling) {
+    if (this.state !== 'running' || this.isPolling)
+      return
+
+    const lifecycleGeneration = this.lifecycleGeneration
+    const transportGeneration = this.transportGeneration
+    const client = this.rpc.getClient()
+    if (this.useWebSocket && client.getWsReadyState() !== WebSocket.OPEN) {
       return
     }
 
     this.isPolling = true
-
     try {
-      // 并行执行三个请求
       const [, clientsResult, statusesResult] = await Promise.all([
-        // 1. Ping 测试服务器状态
         this.rpc.ping(),
-        // 2. 获取节点信息
         this.rpc.getNodes() as Promise<Record<string, Client>>,
-        // 3. 获取节点最新状态
         this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
       ])
-
-      // 更新节点信息（会智能合并，不会重建数组）
+      if (!this.isLifecycleCurrent(lifecycleGeneration)
+        || transportGeneration !== this.transportGeneration
+        || this.state !== 'running') {
+        return
+      }
       this.nodesStore.updateNodeClients(clientsResult)
-
-      // 更新节点状态
       this.nodesStore.updateNodeStatuses(statusesResult)
-
-      // 连接恢复正常，重置错误状态
+      this.postFailureCount = 0
       this.appStore.connectionError = false
     }
     catch (error) {
-      if (error instanceof RpcError) {
-        console.error('[InitManager] Poll RPC error:', error.message)
+      if (!this.isLifecycleCurrent(lifecycleGeneration)
+        || transportGeneration !== this.transportGeneration
+        || this.state !== 'running') {
+        return
       }
-      else {
-        console.error('[InitManager] Poll error:', error)
+      if (this.isAuthenticationFailure(error)) {
+        await this.handleAuthenticationChanged()
+        return
       }
 
-      // 一次失败就显示错误
-      this.appStore.connectionError = true
+      console.error('[InitManager] Poll failed:', error)
+      if (error instanceof RpcTransportError) {
+        this.postFailureCount++
+        if (this.postFailureCount >= this.config.postFailureThreshold) {
+          this.appStore.connectionError = true
+        }
+      }
+      else {
+        this.appStore.connectionError = true
+      }
     }
     finally {
       this.isPolling = false
     }
   }
 
-  /**
-   * 停止轮询
-   */
+  private isAuthenticationFailure(error: unknown): boolean {
+    return isRpcAuthenticationError(error)
+      || this.isLegacyPrivateSiteBootstrapError(error)
+      || (error instanceof ApiError
+        && error.kind === 'unauthenticated'
+        && /session|会话/i.test(error.message))
+  }
+
+  private startSessionMonitoring(): void {
+    this.stopSessionMonitoring()
+    this.sessionCheckTimer = setInterval(() => {
+      void this.refreshSessionState()
+    }, this.config.sessionCheckInterval)
+  }
+
+  private async refreshSessionState(): Promise<void> {
+    if (this.state !== 'running' || this.isCheckingSession)
+      return
+
+    this.isCheckingSession = true
+    const observedGeneration = this.lifecycleGeneration
+    let transitionGeneration: number | null = null
+    try {
+      const wasLoggedIn = this.appStore.isLoggedIn
+      const previousUserIdentity = this.getUserIdentity(this.appStore.userInfo)
+      const previousTransportMode = this.appStore.rpcTransportMode
+      const previousPollInterval = this.getPollInterval()
+      const context = await this.fetchBootstrapContext()
+      if (!this.isLifecycleCurrent(observedGeneration) || this.state !== 'running')
+        return
+
+      const authenticationRequired = this.requiresAuthentication(context.publicSettings, context.userInfo)
+      const loginChanged = wasLoggedIn !== context.userInfo.logged_in
+        || previousUserIdentity !== this.getUserIdentity(context.userInfo)
+      if (authenticationRequired || loginChanged) {
+        // WebSocket 身份在握手时固定。先关闭旧连接并清空节点，避免旧权限结果回写。
+        transitionGeneration = this.beginLifecycleOperation()
+        this.stopTransportAndPolling()
+        this.nodesStore.clearNodes()
+        this.state = 'bootstrapping'
+        this.applyBootstrapContext(context)
+        if (authenticationRequired) {
+          this.enterAwaitingAuthentication()
+          return
+        }
+        await this.finishInitialization(transitionGeneration)
+        return
+      }
+
+      this.applyBootstrapContext(context)
+      if (previousTransportMode !== this.appStore.rpcTransportMode
+        || previousPollInterval !== this.getPollInterval()) {
+        this.startTransportAndPolling()
+      }
+    }
+    catch (error) {
+      console.error('[InitManager] Session validation failed:', error)
+      if (this.isAuthenticationFailure(error)) {
+        await this.handleAuthenticationChanged()
+        return
+      }
+      if (transitionGeneration !== null && this.isLifecycleCurrent(transitionGeneration)) {
+        this.state = 'running'
+        this.appStore.loading = false
+        this.appStore.connectionError = true
+        this.startTransportAndPolling()
+      }
+    }
+    finally {
+      this.isCheckingSession = false
+    }
+  }
+
+  private async handleAuthenticationChanged(): Promise<void> {
+    if (this.authTransitionPromise)
+      return this.authTransitionPromise
+
+    const transition = this.runAuthenticationTransition()
+    this.authTransitionPromise = transition
+    try {
+      await transition
+    }
+    finally {
+      if (this.authTransitionPromise === transition)
+        this.authTransitionPromise = null
+    }
+  }
+
+  private async runAuthenticationTransition(): Promise<void> {
+    const generation = this.beginLifecycleOperation()
+    this.stopTransportAndPolling()
+    this.nodesStore.clearNodes()
+    this.state = 'bootstrapping'
+    this.appStore.loading = true
+
+    try {
+      const context = await this.fetchBootstrapContext()
+      if (!this.isLifecycleCurrent(generation))
+        return
+      this.applyBootstrapContext(context)
+      if (this.requiresAuthentication(context.publicSettings, context.userInfo)) {
+        this.enterAwaitingAuthentication()
+        return
+      }
+      await this.finishInitialization(generation)
+    }
+    catch (error) {
+      if (!this.isLifecycleCurrent(generation))
+        return
+      console.error('[InitManager] Failed to recover authentication state:', error)
+      if (this.isAuthenticationFailure(error)) {
+        this.enterAwaitingAuthentication()
+        return
+      }
+      this.state = 'running'
+      this.appStore.loading = false
+      this.appStore.connectionError = true
+      this.startTransportAndPolling()
+    }
+  }
+
   stopPolling(): void {
     if (this.pollTimer) {
       clearInterval(this.pollTimer)
@@ -430,65 +510,108 @@ class InitManager {
     }
   }
 
-  /**
-   * 登录后重新连接 WebSocket
-   * 断开现有连接，重置状态，重新建立连接
-   */
-  async reconnectAfterLogin(): Promise<void> {
-    const client = this.rpc.getClient()
-
-    // 关闭现有 WebSocket 连接
-    if (client.getWsReadyState() !== WebSocket.CLOSED) {
-      client.close()
+  private stopSessionMonitoring(): void {
+    if (this.sessionCheckTimer) {
+      clearInterval(this.sessionCheckTimer)
+      this.sessionCheckTimer = null
     }
-
-    // 根据主题配置重置连接模式
-    const configuredMode = this.appStore.rpcTransportMode
-    this.useWebSocket = configuredMode === 'websocket'
-    this.nodesStore.updateWsState('disconnected', 0)
-
-    // 重新获取用户信息
-    await this.fetchUserInfo()
-
-    // 重新建立 WebSocket 连接（如果配置为 websocket 模式）
-    this.connectWebSocket()
   }
 
-  /**
-   * 销毁管理器
-   */
-  destroy(): void {
+  private clearReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+  }
+
+  private stopTransportAndPolling(): void {
+    this.transportGeneration++
     this.stopPolling()
+    this.stopSessionMonitoring()
+    this.clearReconnectTimer()
+    this.unsubscribeWsClose?.()
+    this.unsubscribeWsError?.()
+    this.unsubscribeWsClose = null
+    this.unsubscribeWsError = null
+    this.rpc.getClient().setTransport(false)
+  }
+
+  async reconnectAfterLogin(): Promise<void> {
+    if (this.state === 'destroyed')
+      return
+    if (this.loginReconnectPromise)
+      return this.loginReconnectPromise
+
+    const reconnect = this.runLoginReconnect()
+    this.loginReconnectPromise = reconnect
+    try {
+      await reconnect
+    }
+    finally {
+      if (this.loginReconnectPromise === reconnect)
+        this.loginReconnectPromise = null
+    }
+  }
+
+  private async runLoginReconnect(): Promise<void> {
+    const generation = this.beginLifecycleOperation()
+    this.stopTransportAndPolling()
+    this.state = 'bootstrapping'
+    this.appStore.loading = true
+
+    try {
+      const context = await this.fetchBootstrapContext()
+      if (!this.isLifecycleCurrent(generation))
+        return
+      this.applyBootstrapContext(context)
+      if (this.requiresAuthentication(context.publicSettings, context.userInfo) || !context.userInfo.logged_in) {
+        throw new ApiError('登录会话未生效', 'error', 401, { kind: 'unauthenticated' })
+      }
+      await this.finishInitialization(generation)
+    }
+    catch (error) {
+      if (!this.isLifecycleCurrent(generation))
+        return
+      if (this.isAuthenticationFailure(error)) {
+        this.enterAwaitingAuthentication()
+        throw error
+      }
+
+      console.error('[InitManager] Login succeeded but re-initialization failed:', error)
+      this.state = 'running'
+      this.appStore.loading = false
+      this.appStore.requireLogin = false
+      this.appStore.connectionError = true
+      this.startTransportAndPolling()
+      window.$message?.warning('登录成功，但节点数据暂时加载失败，主题会自动重试。')
+    }
+  }
+
+  destroy(): void {
+    if (this.state === 'destroyed')
+      return
+    this.beginLifecycleOperation()
+    this.state = 'destroyed'
+    this.stopTransportAndPolling()
     this.rpc.close()
     this.nodesStore.clearNodes()
-    this.isInitialized = false
+    this.loginModalShown = false
   }
 }
 
-// 单例实例
 let initManager: InitManager | null = null
 
-/**
- * 初始化应用
- */
 export async function initApp(): Promise<void> {
   if (!initManager) {
     initManager = new InitManager()
   }
-
   await initManager.init()
 }
 
-/**
- * 获取初始化管理器实例
- */
 export function getInitManager(): InitManager | null {
   return initManager
 }
 
-/**
- * 销毁初始化管理器
- */
 export function destroyInitManager(): void {
   if (initManager) {
     initManager.destroy()
@@ -496,10 +619,6 @@ export function destroyInitManager(): void {
   }
 }
 
-/**
- * 登录后重新连接
- * 断开现有 WebSocket 连接并以登录状态重新建立
- */
 export async function reconnectAfterLogin(): Promise<void> {
   if (initManager) {
     await initManager.reconnectAfterLogin()

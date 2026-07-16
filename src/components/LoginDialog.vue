@@ -1,15 +1,11 @@
 <script setup lang="ts">
 import type { FormInst } from 'naive-ui'
-import { NButton, NDivider, NForm, NFormItem, NInput, NInputOtp } from 'naive-ui'
+import { NAlert, NButton, NDivider, NForm, NFormItem, NInput, NInputOtp } from 'naive-ui'
 
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { ApiError, getSharedApi } from '@/utils/api'
 import { reconnectAfterLogin } from '@/utils/init'
-
-const props = defineProps<{
-  forceLogin?: boolean
-}>()
 
 const emit = defineEmits<{
   loginSuccess: []
@@ -29,6 +25,8 @@ const loading = ref(false)
 const showOtpDialog = ref(false)
 const otpCode = ref<string[]>(['', '', '', '', '', ''])
 const otpLoading = ref(false)
+const passwordLoginEnabled = computed(() => !appStore.publicSettings?.disable_password_login)
+const oauthLoginEnabled = computed(() => Boolean(appStore.publicSettings?.oauth_enable))
 
 const onlyAllowNumber = (value: string) => !value || /^\d+$/.test(value)
 
@@ -36,6 +34,30 @@ const rules = ref({
   username: [{ required: true, message: '请输入用户名', trigger: ['blur'] }],
   password: [{ required: true, message: '请输入密码', trigger: ['blur'] }],
 })
+
+function getLoginErrorMessage(error: unknown, otp = false): string {
+  if (!(error instanceof ApiError))
+    return otp ? '验证失败，请重试' : '登录失败，请重试'
+
+  switch (error.kind) {
+    case 'invalid_credentials':
+      return otp ? '用户名或密码已失效，请重新登录' : '用户名或密码错误'
+    case 'two_factor_invalid':
+      return '验证码错误，请重试'
+    case 'password_login_disabled':
+      return '密码登录已被管理员禁用'
+    case 'network':
+      return '网络连接失败，请检查面板地址或反向代理'
+    case 'timeout':
+      return '登录请求超时，请稍后重试'
+    case 'protocol':
+      return '面板返回了无法识别的响应'
+    case 'unauthenticated':
+      return error.message || '登录会话未生效'
+    default:
+      return otp ? '验证失败，请重试' : '登录失败，请重试'
+  }
+}
 
 async function handleLogin() {
   try {
@@ -49,31 +71,15 @@ async function handleLogin() {
 
   try {
     await api.login(form.value.username, form.value.password)
-
-    // 登录成功
-    window.$message?.success('登录成功')
-
-    if (props.forceLogin) {
-      // 强制登录模式：触发事件让父组件处理后续流程
-      emit('loginSuccess')
-    }
-    else {
-      // 普通登录：重新连接 WebSocket
-      await reconnectAfterLogin()
-      window.$modal?.destroyAll()
-    }
+    await completeLogin()
   }
   catch (error) {
-    // 检查是否需要 2FA 验证
-    if (error instanceof ApiError) {
-      const msg = error.message.toLowerCase()
-      if (msg.includes('2fa') || msg.includes('2fa code') || msg.includes('two factor')) {
-        showOtpDialog.value = true
-        return
-      }
+    if (error instanceof ApiError && error.kind === 'two_factor_required') {
+      showOtpDialog.value = true
+      return
     }
     console.error('[LoginDialog] Login error:', error)
-    window.$message?.error('登录失败，请检查用户名和密码')
+    window.$message?.error(getLoginErrorMessage(error))
   }
   finally {
     loading.value = false
@@ -91,39 +97,42 @@ async function handleOtpSubmit() {
 
   try {
     await api.login(form.value.username, form.value.password, code)
-
-    // 登录成功
-    window.$message?.success('登录成功')
-
-    if (props.forceLogin) {
-      // 强制登录模式：触发事件让父组件处理后续流程
-      emit('loginSuccess')
-    }
-    else {
-      // 普通登录：重新连接 WebSocket
-      await reconnectAfterLogin()
-      window.$modal?.destroyAll()
-    }
+    await completeLogin()
   }
   catch (error) {
     console.error('[LoginDialog] OTP error:', error)
-    window.$message?.error('验证码错误，请重试')
-    otpCode.value = ['', '', '', '', '', '']
+    window.$message?.error(getLoginErrorMessage(error, true))
+    if (error instanceof ApiError && error.kind === 'two_factor_invalid') {
+      otpCode.value = ['', '', '', '', '', '']
+    }
   }
   finally {
     otpLoading.value = false
   }
 }
 
+async function completeLogin() {
+  // 不能只相信 login 响应；必须确认 HttpOnly session cookie 已真正生效。
+  const me = await api.getMe()
+  if (!me.logged_in) {
+    throw new ApiError('登录会话未生效，请检查反向代理或 Cookie 设置', 'error', 401, { kind: 'unauthenticated' })
+  }
+  appStore.setUserInfo(me)
+  await reconnectAfterLogin()
+  emit('loginSuccess')
+  window.$modal?.destroyAll()
+  window.$message?.success('登录成功')
+}
+
 function handleOAuth2Login() {
-  location.href = '/api/oauth'
+  api.oauthLogin()
 }
 </script>
 
 <template>
   <div class="w-full">
     <!-- 登录表单 -->
-    <div v-if="!showOtpDialog" class="flex flex-col">
+    <div v-if="!showOtpDialog && passwordLoginEnabled" class="flex flex-col">
       <NForm ref="formRef" :model="form" :rules="rules" class="w-full">
         <NFormItem label="用户名" path="username">
           <NInput v-model:value="form.username" placeholder="请输入用户名" :disabled="loading" />
@@ -147,7 +156,7 @@ function handleOAuth2Login() {
     </div>
 
     <!-- OTP 验证表单 -->
-    <div v-else class="flex flex-col gap-4 w-full items-center overflow-x-auto">
+    <div v-if="showOtpDialog" class="flex flex-col gap-4 w-full items-center overflow-x-auto">
       <div class="text-center">
         <div class="text-lg font-medium mb-2">
           两步验证
@@ -173,8 +182,8 @@ function handleOAuth2Login() {
       </div>
     </div>
 
-    <template v-if="!showOtpDialog && appStore.publicSettings?.oauth_enable">
-      <NDivider />
+    <template v-if="!showOtpDialog && oauthLoginEnabled">
+      <NDivider v-if="passwordLoginEnabled" />
       <div class="flex flex-col">
         <NButton block @click="handleOAuth2Login">
           <template #icon>
@@ -184,5 +193,9 @@ function handleOAuth2Login() {
         </NButton>
       </div>
     </template>
+
+    <NAlert v-if="!showOtpDialog && !passwordLoginEnabled && !oauthLoginEnabled" type="error" :show-icon="false">
+      当前站点未启用任何可用的登录方式，请联系管理员。
+    </NAlert>
   </div>
 </template>

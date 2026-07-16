@@ -144,6 +144,7 @@ export function fillMissingTimePoints<T extends { time?: string, updated_at?: st
 
     if (found) {
       // 找到则使用，但对齐时间到网格
+      dataIdx++
       return { ...found, time: dayjs(t).toISOString() }
     }
 

@@ -314,19 +314,20 @@ function getNodeTags(node: NodeData): Array<{ text: string, color: string }> {
 
   // 前两个标签：剩余天数和价格（price > 0 时显示）
   if (node.price !== 0) {
-    // 剩余天数标签
-    const days = getDaysUntilExpired(node.expired_at)
-    const status = getExpireStatus(node.expired_at)
-    const color = getExpireBadgeColor(status)
+    if (node.expired_at) {
+      const days = getDaysUntilExpired(node.expired_at)
+      const status = getExpireStatus(node.expired_at)
+      const color = getExpireBadgeColor(status)
 
-    if (status === 'expired') {
-      tags.push({ text: lang === 'zh-CN' ? '已过期' : 'Expired', color })
-    }
-    else if (status === 'long_term') {
-      tags.push({ text: lang === 'zh-CN' ? '长期' : 'Long-term', color })
-    }
-    else {
-      tags.push({ text: lang === 'zh-CN' ? `剩余 ${days} 天` : `${days} days left`, color })
+      if (status === 'expired') {
+        tags.push({ text: lang === 'zh-CN' ? '已过期' : 'Expired', color })
+      }
+      else if (status === 'long_term') {
+        tags.push({ text: lang === 'zh-CN' ? '长期' : 'Long-term', color })
+      }
+      else {
+        tags.push({ text: lang === 'zh-CN' ? `剩余 ${days} 天` : `${days} days left`, color })
+      }
     }
 
     // 价格标签

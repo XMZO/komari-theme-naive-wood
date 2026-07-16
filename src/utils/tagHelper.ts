@@ -160,7 +160,7 @@ export function getBillingCycleText(billingCycle: number, lang: 'zh-CN' | 'en-US
  * @param expiredAt 过期时间（字符串或时间戳）
  * @returns 距离过期的天数，负数表示已过期
  */
-export function getDaysUntilExpired(expiredAt: string | number | undefined): number {
+export function getDaysUntilExpired(expiredAt: string | number | null | undefined): number {
   if (!expiredAt)
     return 0
 
@@ -178,7 +178,7 @@ export function getDaysUntilExpired(expiredAt: string | number | undefined): num
  * @param expiredAt 过期时间
  * @returns 过期状态
  */
-export function getExpireStatus(expiredAt: string | number | undefined): ExpireStatus {
+export function getExpireStatus(expiredAt: string | number | null | undefined): ExpireStatus {
   const days = getDaysUntilExpired(expiredAt)
 
   if (days <= 0)
@@ -239,7 +239,7 @@ export function getExpireStatusHexColor(status: ExpireStatus): string {
  * @param lang 语言
  * @returns 显示文本
  */
-export function getExpireText(expiredAt: string | number | undefined, lang: 'zh-CN' | 'en-US' = 'zh-CN'): string {
+export function getExpireText(expiredAt: string | number | null | undefined, lang: 'zh-CN' | 'en-US' = 'zh-CN'): string {
   const days = getDaysUntilExpired(expiredAt)
   const status = getExpireStatus(expiredAt)
 
