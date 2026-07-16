@@ -72,6 +72,44 @@ export const PING_HISTORY_METRIC_KEYS = [
   METRIC_KEYS.pingLoss,
 ] as const
 
+const METRIC_DOWNSAMPLE_INTERVAL_SECONDS = [
+  1,
+  5,
+  10,
+  15,
+  30,
+  60,
+  120,
+  300,
+  600,
+  900,
+  1800,
+  3600,
+  7200,
+  10800,
+  21600,
+  43200,
+  86400,
+] as const
+
+/**
+ * Komari 会把 duration/max_points 向下取整到标准桶。若固定请求 600 点，
+ * 短窗口的桶可能远小于真实上报间隔，fill_empty 会在每两个样本间插入大量 null，
+ * 最终让隐藏 symbol、禁止跨空值连线的折线完全不可见。
+ */
+export function getMetricQueryMaxPoints(hours: number, sampleIntervalSeconds: number, limit = 600): number {
+  const normalizedHours = Number.isFinite(hours) && hours > 0 ? hours : 1
+  const durationSeconds = Math.max(1, normalizedHours * 3600)
+  const normalizedSampleInterval = Number.isFinite(sampleIntervalSeconds) && sampleIntervalSeconds > 0
+    ? sampleIntervalSeconds
+    : 60
+  const bucketInterval = METRIC_DOWNSAMPLE_INTERVAL_SECONDS.find(
+    interval => interval >= normalizedSampleInterval,
+  ) ?? 86400
+  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 600
+  return Math.max(1, Math.min(safeLimit, Math.floor(durationSeconds / bucketInterval)))
+}
+
 let metricDefinitionsSupported: boolean | null = null
 let metricQuerySupported: boolean | null = null
 let pingMetricStatsSupported: boolean | null = null

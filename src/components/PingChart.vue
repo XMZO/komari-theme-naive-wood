@@ -8,6 +8,7 @@ import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import {
   getMetricDefinitions,
+  getMetricQueryMaxPoints,
   getPingMetricStatsIfSupported,
   METRIC_KEYS,
   metricSeriesTags,
@@ -446,25 +447,38 @@ async function fetchMetricPayload(hours: number): Promise<PingDataPayload | null
     return { rows: [], tasks: [], retentionHours }
   }
 
-  const [query, statsResponse, publicTasks] = await Promise.all([
-    queryMetricsIfSupported({
-      metric_keys: metricKeys,
-      entity_id: props.uuid,
-      hours,
-      downsample: true,
-      fill_empty: true,
-      max_points: 600,
-      aggregation: 'avg',
-      aggregation_by_metric: {
-        [METRIC_KEYS.pingLatency]: 'avg',
-        [METRIC_KEYS.pingLoss]: 'avg',
-      },
-    }),
+  const [statsResponse, publicTasks] = await Promise.all([
     getPingMetricStatsIfSupported({ entity_id: props.uuid, hours, max_points: 600 }),
     fetchPublicPingTasksIfSupported(),
   ])
 
-  if (query === null || statsResponse === null)
+  if (statsResponse === null)
+    return null
+
+  const statsIntervals = statsResponse.stats
+    .map(stat => stat.interval)
+    .filter((interval): interval is number => typeof interval === 'number' && Number.isFinite(interval) && interval > 0)
+  const configuredIntervals = (publicTasks ?? [])
+    .filter(task => Array.isArray(task.clients) && task.clients.includes(props.uuid))
+    .map(task => task.interval)
+    .filter(interval => Number.isFinite(interval) && interval > 0)
+  const taskIntervals = statsIntervals.length > 0 ? statsIntervals : configuredIntervals
+  const sampleInterval = taskIntervals.length > 0 ? Math.max(...taskIntervals) : 60
+  const query = await queryMetricsIfSupported({
+    metric_keys: metricKeys,
+    entity_id: props.uuid,
+    hours,
+    downsample: true,
+    fill_empty: true,
+    max_points: getMetricQueryMaxPoints(hours, sampleInterval),
+    aggregation: 'avg',
+    aggregation_by_metric: {
+      [METRIC_KEYS.pingLatency]: 'avg',
+      [METRIC_KEYS.pingLoss]: 'avg',
+    },
+  })
+
+  if (query === null)
     return null
 
   return buildMetricPayload(query, statsResponse.stats, publicTasks, retentionHours)

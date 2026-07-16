@@ -13,6 +13,7 @@ import { formatBytes, formatBytesSplit } from '@/utils/helper'
 import {
   getEnabledMetricKeys,
   getMetricDefinitions,
+  getMetricQueryMaxPoints,
   getMetricRetentionHours,
   LOAD_HISTORY_METRIC_KEYS,
   LOAD_RETENTION_METRIC_KEYS,
@@ -30,6 +31,7 @@ const props = defineProps<{
 
 const appStore = useAppStore()
 const nodesStore = useNodesStore()
+const LOAD_HISTORY_SAMPLE_INTERVAL_SECONDS = 60
 
 const metricDefinitions = shallowRef<MetricDefinition[] | null | undefined>(undefined)
 
@@ -272,7 +274,7 @@ async function fetchHistoryData() {
         hours,
         downsample: true,
         fill_empty: true,
-        max_points: 600,
+        max_points: getMetricQueryMaxPoints(hours, LOAD_HISTORY_SAMPLE_INTERVAL_SECONDS),
         aggregation: 'avg',
         aggregation_by_metric: {
           [METRIC_KEYS.ramTotal]: 'last',
