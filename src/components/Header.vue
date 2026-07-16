@@ -108,6 +108,17 @@ function handleButtonClick(action: string) {
           <NPopover v-for="button in actionButtons" :key="button.action" :disabled="button.disabled">
             <template #trigger>
               <NButton
+                v-if="button.action === 'jumpToSetting' && appStore.adminPageAsLink"
+                tag="a"
+                href="/admin"
+                :disabled="button.disabled"
+                class="header-action-button p-2 h-8 w-8"
+                text
+              >
+                <AppIcon class="header-action-icon" :name="button.icon" />
+              </NButton>
+              <NButton
+                v-else
                 :disabled="button.disabled"
                 class="header-action-button p-2 h-8 w-8"
                 text

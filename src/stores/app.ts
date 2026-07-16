@@ -394,6 +394,15 @@ const useAppStore = defineStore('app', () => {
     return false
   })
 
+  // 计算属性：后台管理按钮是否使用真实链接（支持中键/Ctrl 打开新标签）
+  const adminPageAsLink = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.adminPageAsLink === 'boolean') {
+      return settings.adminPageAsLink
+    }
+    return false
+  })
+
   // 计算属性：左键是否在新标签页打开节点详情
   const openNodeInNewTab = computed<boolean>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -840,6 +849,7 @@ const useAppStore = defineStore('app', () => {
     listTagsStyle,
     showPingChartButton,
     nodeDetailAsLink,
+    adminPageAsLink,
     openNodeInNewTab,
     useNodeDetailLink,
     showRenewalStats,
