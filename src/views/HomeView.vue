@@ -8,7 +8,7 @@ import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
-import { isRegionMatch } from '@/utils/regionHelper'
+import { getVisibleNodeTags, isRegionMatch, resolveNodeRegion } from '@/utils/regionHelper'
 
 // 定义组件名称，用于 KeepAlive 匹配
 defineOptions({
@@ -99,13 +99,14 @@ function isNodeMatchSearch(node: typeof nodesStore.nodes[number], search: string
     return true
 
   const lowerSearch = search.toLowerCase().trim()
+  const effectiveRegion = resolveNodeRegion(node.region, node.tags, appStore.enableNodeFlagOverride)
 
   // 搜索节点名称
   if (node.name.toLowerCase().includes(lowerSearch))
     return true
 
   // 搜索地区（使用 regionHelper 支持国家名称搜索）
-  if (node.region && isRegionMatch(node.region, search))
+  if (effectiveRegion && isRegionMatch(effectiveRegion, search))
     return true
 
   // 搜索操作系统
@@ -117,7 +118,8 @@ function isNodeMatchSearch(node: typeof nodesStore.nodes[number], search: string
     return true
 
   // 搜索标签
-  if (node.tags && node.tags.toLowerCase().includes(lowerSearch))
+  const visibleTags = getVisibleNodeTags(node.tags, appStore.enableNodeFlagOverride)
+  if (visibleTags && visibleTags.toLowerCase().includes(lowerSearch))
     return true
 
   // 搜索备注

@@ -6,6 +6,7 @@ import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytesPerSecondSplit, formatBytesSplit } from '@/utils/helper'
+import { resolveNodeRegion } from '@/utils/regionHelper'
 
 const appStore = useAppStore()
 const nodesStore = useNodesStore()
@@ -33,8 +34,9 @@ const totalTraffic = computed(() => {
 const onlineRegionCount = computed(() => {
   return new Set(
     nodesStore.nodes
-      .filter(node => node.online && node.region !== '')
-      .map(node => node.region),
+      .filter(node => node.online)
+      .map(node => resolveNodeRegion(node.region, node.tags, appStore.enableNodeFlagOverride))
+      .filter(region => region !== ''),
   ).size
 })
 

@@ -1685,6 +1685,66 @@ export function getRegionByAlias(aliasOrCode: string): { emoji: string, en: stri
   return null
 }
 
+const NODE_FLAG_OVERRIDE_PREFIX_PATTERN = /^flag[ \t]*[:=]/i
+const TAG_COLOR_SUFFIX_PATTERN = /<\w+>$/
+
+function getNodeFlagOverrideValue(tag: string): string | null {
+  const normalizedTag = tag.trim().replace(TAG_COLOR_SUFFIX_PATTERN, '').trim()
+  const prefix = normalizedTag.match(NODE_FLAG_OVERRIDE_PREFIX_PATTERN)
+  return prefix ? normalizedTag.slice(prefix[0].length).trim() : null
+}
+
+/** 判断标签是否是节点国旗覆盖控制标签。 */
+export function isNodeFlagOverrideTag(tag: string): boolean {
+  return getNodeFlagOverrideValue(tag) !== null
+}
+
+/**
+ * 从节点标签中解析最后一个有效的国旗覆盖。
+ * 支持 ISO 国家/地区代码、已有别名及国旗 Emoji。
+ */
+export function getNodeFlagOverrideRegion(tags: string | undefined): string | null {
+  if (!tags)
+    return null
+
+  const tagList = tags.split(';')
+  for (let index = tagList.length - 1; index >= 0; index--) {
+    const tag = tagList[index]
+    if (tag === undefined)
+      continue
+
+    const overrideValue = getNodeFlagOverrideValue(tag)
+    if (!overrideValue)
+      continue
+
+    if (emojiToRegionMap[overrideValue])
+      return overrideValue
+
+    const region = getRegionByAlias(overrideValue)
+    if (region)
+      return region.emoji
+  }
+
+  return null
+}
+
+/** 默认关闭时严格返回后端原始地区；开启后仅覆盖带有效 flag 标签的节点。 */
+export function resolveNodeRegion(region: string, tags: string | undefined, enabled: boolean): string {
+  if (!enabled)
+    return region
+  return getNodeFlagOverrideRegion(tags) ?? region
+}
+
+/** 开启覆盖功能时，从正常标签展示和搜索文本中移除控制标签。 */
+export function getVisibleNodeTags(tags: string | undefined, enabled: boolean): string {
+  if (!tags || !enabled)
+    return tags ?? ''
+  return tags
+    .split(';')
+    .filter(tag => !isNodeFlagOverrideTag(tag))
+    .join(';')
+}
+
 /**
  * 从文本中提取地区emoji
  * @param text 包含地区emoji的文本

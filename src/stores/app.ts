@@ -91,6 +91,15 @@ const useAppStore = defineStore('app', () => {
     return true
   })
 
+  // 计算属性：是否允许使用节点 flag:<国家代码> 标签覆盖自动识别国旗
+  const enableNodeFlagOverride = computed<boolean>(() => {
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.enableNodeFlagOverride === 'boolean') {
+      return settings.enableNodeFlagOverride
+    }
+    return false
+  })
+
   // 计算属性：从主题配置获取默认视图模式
   const defaultViewMode = computed<NodeViewMode>(() => {
     const settings = publicSettings.value?.theme_settings
@@ -831,6 +840,7 @@ const useAppStore = defineStore('app', () => {
     nodeViewMode,
     defaultViewMode,
     enableEarthView,
+    enableNodeFlagOverride,
     rpcTransportMode,
     showLoginButton,
     offlineNodesLast,

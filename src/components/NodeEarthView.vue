@@ -8,7 +8,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch 
 import countriesTopology from 'world-atlas/countries-50m.json'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
-import { getRegionCode, getRegionDisplayName } from '@/utils/regionHelper'
+import { getRegionCode, getRegionDisplayName, resolveNodeRegion } from '@/utils/regionHelper'
 import 'leaflet/dist/leaflet.css'
 
 type RegionStatus = 'online' | 'offline' | 'partial' | 'inactive'
@@ -77,11 +77,15 @@ const smallRegionCodes = new Set(Object.keys(smallRegionDisplays))
 const chinaRegionCodes = new Set(['CN', 'HK', 'MO', 'TW'])
 const chinaRegionNames = new Set(Object.values(regionNameOverrides))
 
+function getEffectiveRegion(node: NodeData): string {
+  return resolveNodeRegion(node.region, node.tags, appStore.enableNodeFlagOverride)
+}
+
 const groupedNodes = computed(() => {
   const groups = new Map<string, NodeData[]>()
 
   for (const node of props.nodes) {
-    const regionName = getMapRegionName(node.region)
+    const regionName = getMapRegionName(getEffectiveRegion(node))
     if (!regionName)
       continue
 
@@ -98,7 +102,7 @@ const groupedNodes = computed(() => {
 })
 
 const chinaRegionNodes = computed(() => {
-  return props.nodes.filter(node => chinaRegionCodes.has(getRegionCode(node.region)))
+  return props.nodes.filter(node => chinaRegionCodes.has(getRegionCode(getEffectiveRegion(node))))
 })
 
 const activeRegionNames = computed(() => {
@@ -132,6 +136,13 @@ watch(
   () => appStore.isDark,
   () => {
     tileLayer.value?.setUrl(tileUrl.value)
+    renderLayers()
+  },
+)
+
+watch(
+  () => appStore.enableNodeFlagOverride,
+  () => {
     renderLayers()
   },
 )
@@ -327,7 +338,7 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
     if (!firstNode)
       continue
 
-    const code = getRegionCodeByMapName(regionName) ?? getRegionCode(firstNode.region)
+    const code = getRegionCodeByMapName(regionName) ?? getRegionCode(getEffectiveRegion(firstNode))
     const display = smallRegionDisplays[code]
     if (!display || !smallRegionCodes.has(code))
       continue

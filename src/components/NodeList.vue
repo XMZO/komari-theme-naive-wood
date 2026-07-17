@@ -10,7 +10,7 @@ import TrafficProgress from '@/components/TrafficProgress.vue'
 import { useAppStore } from '@/stores/app'
 import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat, getStatus } from '@/utils/helper'
 import { getOSImage, getOSName } from '@/utils/osImageHelper'
-import { getRegionCode, getRegionDisplayName } from '@/utils/regionHelper'
+import { getRegionCode, getRegionDisplayName, isNodeFlagOverrideTag, resolveNodeRegion } from '@/utils/regionHelper'
 import { formatPriceWithCycle, getDaysUntilExpired, getExpireStatus, parseTags } from '@/utils/tagHelper'
 
 const props = defineProps<{
@@ -78,8 +78,8 @@ const sortedNodes = computed(() => {
       case 'status':
         return dir * ((a.online ? 1 : 0) - (b.online ? 1 : 0))
       case 'region': {
-        const va = (a.region || '').toLowerCase()
-        const vb = (b.region || '').toLowerCase()
+        const va = getEffectiveRegion(a).toLowerCase()
+        const vb = getEffectiveRegion(b).toLowerCase()
         return dir * (va < vb ? -1 : va > vb ? 1 : 0)
       }
       case 'name': {
@@ -213,9 +213,13 @@ const rowHeightStyle = computed(() => {
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 
+function getEffectiveRegion(node: NodeData): string {
+  return resolveNodeRegion(node.region, node.tags, appStore.enableNodeFlagOverride)
+}
+
 // 计算国旗图标路径
-function getFlagSrc(region: string): string {
-  const code = getRegionCode(region)
+function getFlagSrc(node: NodeData): string {
+  const code = getRegionCode(getEffectiveRegion(node))
   return `/images/flags/${code}.svg`
 }
 
@@ -337,6 +341,7 @@ function getNodeTags(node: NodeData): Array<{ text: string, color: string }> {
 
   // 后续标签：从 tags 字段解析
   const customTags = parseTags(node.tags)
+    .filter(tag => !appStore.enableNodeFlagOverride || !isNodeFlagOverrideTag(tag.text))
   for (const tag of customTags) {
     tags.push({ text: tag.text, color: tag.hex })
   }
@@ -438,7 +443,7 @@ const columnTitles: Record<string, string> = {
               <!-- 国旗 -->
               <div v-else-if="col === 'region'" class="node-list-item__region" :style="getColumnStyle('region')">
                 <NIcon size="20">
-                  <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
+                  <img :src="getFlagSrc(node)" :alt="getRegionDisplayName(getEffectiveRegion(node))" class="rounded-sm">
                 </NIcon>
               </div>
 
@@ -590,7 +595,7 @@ const columnTitles: Record<string, string> = {
               <div class="node-offline-overlay__mask" :style="offlineOverlayMaskStyle" />
               <div v-if="offlineOverlayRegionStyle" class="node-offline-overlay__region" :style="offlineOverlayRegionStyle">
                 <NIcon size="18" class="node-offline-overlay__flag shrink-0">
-                  <img :src="getFlagSrc(node.region)" :alt="getRegionDisplayName(node.region)" class="rounded-sm">
+                  <img :src="getFlagSrc(node)" :alt="getRegionDisplayName(getEffectiveRegion(node))" class="rounded-sm">
                 </NIcon>
               </div>
               <div class="node-offline-overlay__content" :style="offlineOverlayContentStyle">
