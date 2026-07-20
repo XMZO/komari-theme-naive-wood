@@ -3,6 +3,9 @@
  * @see https://www.komari.wiki/dev/rpc.html
  */
 
+import type { RpcCollection } from '@/utils/rpcCompatibility'
+import { normalizeRpcCollection, RpcCompatibilityError } from '@/utils/rpcCompatibility'
+
 // ==================== 类型定义 ====================
 
 /** JSON-RPC 2.0 请求结构 */
@@ -775,6 +778,18 @@ export class KomariRpc {
     }
   }
 
+  private async callCollection<T>(method: string, getKey: (item: T) => unknown): Promise<Record<string, T>> {
+    const payload = await this.client.call<RpcCollection<T>>(method)
+    try {
+      return normalizeRpcCollection<T>(payload, method, getKey)
+    }
+    catch (error) {
+      if (error instanceof RpcCompatibilityError)
+        throw new RpcTransportError('protocol', error.message)
+      throw error
+    }
+  }
+
   // ==================== 内置方法 ====================
 
   /**
@@ -822,16 +837,17 @@ export class KomariRpc {
 
   /**
    * 获取所有节点信息
+   * 兼容 1.2.5-fix1 的有序数组与其他版本的 UUID 字典。
    */
   async getNodes(): Promise<Record<string, Client>> {
-    return this.client.call<Record<string, Client>>('common:getNodes')
+    return this.callCollection<Client>('common:getNodes', client => client.uuid)
   }
 
   /**
    * 获取所有节点最新状态
    */
   async getNodesLatestStatus(): Promise<Record<string, NodeStatus>> {
-    return this.client.call<Record<string, NodeStatus>>('common:getNodesLatestStatus')
+    return this.callCollection<NodeStatus>('common:getNodesLatestStatus', status => status.client)
   }
 
   async getPublicPingTasks(): Promise<PublicPingTask[]> {

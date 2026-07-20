@@ -227,8 +227,8 @@ class InitManager {
     statuses: Record<string, NodeStatus>
   }> {
     const [clientsResult, statusesResult] = await Promise.all([
-      this.rpc.getNodes() as Promise<Record<string, Client>>,
-      this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
+      this.rpc.getNodes(),
+      this.rpc.getNodesLatestStatus(),
     ])
     return { clients: clientsResult, statuses: statusesResult }
   }
@@ -345,8 +345,8 @@ class InitManager {
     this.isPolling = true
     try {
       const [clientsResult, statusesResult] = await Promise.allSettled([
-        this.rpc.getNodes() as Promise<Record<string, Client>>,
-        this.rpc.getNodesLatestStatus() as Promise<Record<string, NodeStatus>>,
+        this.rpc.getNodes(),
+        this.rpc.getNodesLatestStatus(),
       ])
       if (!this.isLifecycleCurrent(lifecycleGeneration)
         || transportGeneration !== this.transportGeneration
