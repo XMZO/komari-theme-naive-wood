@@ -1,24 +1,29 @@
 import type { Feature, FeatureCollection, MultiPolygon, Polygon, Position } from 'geojson'
 import { feature as topoFeature } from 'topojson-client'
 import countriesTopology from 'world-atlas/countries-50m.json'
+import chinaBoundary from '@/assets/chinaBoundary.json'
 
 /**
  * 地球视图的地图数据层。
  *
- * 这里集中处理 world-atlas 原始数据的三个几何问题，使渲染层拿到的
- * FeatureCollection 可以直接投影，不需要再做任何补丁：
+ * 世界底图来自 world-atlas（Natural Earth），中国及港澳台部分改用
+ * GS(2024)0650 号标准地图数据（见 scripts/build-china-boundary.mjs），
+ * 以采用中方标准划界并补齐南海诸岛。
+ *
+ * 这里集中处理原始数据的几何问题，使渲染层拿到的 FeatureCollection
+ * 可以直接投影，不需要再做任何补丁：
  *
  * 1. 反子午线穿越：俄罗斯、斐济、南极洲存在单个 ring 从 +180° 直接
- *    连到 -180° 的情况。Leaflet 按坐标顺序连线，会横穿整张地图拉出
- *    一条水平长丝。按 ±180° 切分后分裂为独立 polygon。
+ *    连到 -180° 的情况。按坐标顺序连线会横穿整张地图拉出一条长丝，
+ *    需按 ±180° 切分为独立 polygon。
  * 2. 极点边：南极洲含一条 257 个点全部位于 -90° 的人工闭合边，
- *    墨卡托投影下映射到无穷远。统一夹紧到 ±85.05°。
+ *    保留会画出横贯地图的直线，整条丢弃。
  * 3. 国家标识：原始数据只有英文名，字符串匹配脆弱且易静默失配。
  *    这里改用 feature 自带的 ISO 3166-1 numeric 代码换算成二字码。
  */
 
-/** 墨卡托投影的有效纬度上限，超出部分会映射到无穷远。 */
-const MERCATOR_MAX_LAT = 85.05112878
+/** 纬度安全上限。等距圆柱投影可以直接表达极点，这里只做退化保护。 */
+const MAX_LATITUDE = 89.9
 
 /** 相邻两点经度差超过该值即视为跨越了反子午线。 */
 const ANTIMERIDIAN_JUMP = 180
@@ -288,21 +293,36 @@ export interface MapFeatureProperties {
 }
 
 function clampLatitude(lat: number): number {
-  return Math.min(MERCATOR_MAX_LAT, Math.max(-MERCATOR_MAX_LAT, lat))
+  return Math.min(MAX_LATITUDE, Math.max(-MAX_LATITUDE, lat))
 }
 
 /**
  * 按反子午线切分一条 ring。
  *
- * 遍历相邻点对，若经度差超过 180° 说明这一段实际穿过了 ±180°：
- * 在边界处插入线性插值得到的交点，收尾当前段并另起一段。
- * 返回切分后的若干条 ring；未穿越时原样返回单条。
+ * ring 是闭合环，起点通常落在陆地中间而非边界上。遍历相邻点对，
+ * 若经度差超过 180° 说明这一段穿过了 ±180°：在边界处插入线性插值
+ * 得到的交点，收尾当前段并另起一段。
+ *
+ * 关键点：环的首段与末段原本是连续的同一块陆地（末段的终点即环的
+ * 起点）。若让它们各自闭合成独立多边形，会从边界强行连回起点，
+ * 反而画出一条穿过陆地的假边。因此当两者位于同一侧时需拼接还原。
  */
 function splitRingAtAntimeridian(ring: Position[]): Position[][] {
   const segments: Position[][] = []
   let current: Position[] = []
 
-  for (let i = 0; i < ring.length; i++) {
+  // 闭合环的末点与首点重合，重复计入会在拼接时产生多余顶点。
+  const lastIndex = ring.length - 1
+  const first = ring[0]
+  const last = ring[lastIndex]
+  const isClosed = Boolean(
+    first && last
+    && (first[0] as number) === (last[0] as number)
+    && (first[1] as number) === (last[1] as number),
+  )
+  const effectiveLength = isClosed ? lastIndex : ring.length
+
+  for (let i = 0; i < effectiveLength; i++) {
     const point = ring[i]
     if (!point) {
       continue
@@ -340,6 +360,34 @@ function splitRingAtAntimeridian(ring: Position[]): Position[][] {
     segments.push(current)
   }
 
+  // 环绕回起点时同样可能跨越边界，需按同样规则处理最后一段闭合边。
+  if (isClosed && segments.length > 1) {
+    const tail = segments[segments.length - 1]
+    const head = segments[0]
+
+    if (tail && head) {
+      const tailEnd = tail[tail.length - 1] as [number, number]
+      const headStart = head[0] as [number, number]
+      const closingDelta = headStart[0] - tailEnd[0]
+
+      if (Math.abs(closingDelta) > ANTIMERIDIAN_JUMP) {
+        // 闭合边自身跨越反子午线：在边界处断开，两端各自收尾。
+        const boundary = closingDelta < 0 ? 180 : -180
+        const adjusted = closingDelta < 0 ? closingDelta + 360 : closingDelta - 360
+        const ratio = adjusted === 0 ? 0 : (boundary - tailEnd[0]) / adjusted
+        const crossLat = clampLatitude(tailEnd[1] + (headStart[1] - tailEnd[1]) * ratio)
+
+        tail.push([boundary, crossLat])
+        head.unshift([-boundary, crossLat])
+      }
+      else {
+        // 首尾两段本属同一块陆地，拼接还原，避免各自闭合出假边。
+        segments[segments.length - 1] = [...tail, ...head]
+        segments.shift()
+      }
+    }
+  }
+
   // 少于 3 个点无法构成面，丢弃避免产生退化几何。
   return segments.filter(segment => segment.length >= 3)
 }
@@ -359,14 +407,32 @@ function ringNeedsSplit(ring: Position[]): boolean {
 }
 
 /**
+ * 判断是否为纯极点边。
+ *
+ * 南极洲含一条 257 个点纬度全为 -90° 的人工封闭边，仅用于在数据上闭合
+ * 大陆轮廓，本身不代表任何陆地。保留它会在图上画出一条横贯地图的直线，
+ * 因此整条丢弃。
+ */
+function isPolarEdge(ring: Position[]): boolean {
+  return ring.every((position) => {
+    const lat = position[1] as number
+    return Math.abs(lat) >= MAX_LATITUDE
+  })
+}
+
+/**
  * 规范化一个 polygon（外环 + 若干内环）。
  *
- * 外环需要切分时，内环归属会变得不确定，因此直接把切分结果各自作为
- * 独立的单环 polygon 返回 —— 这些区域（俄罗斯远东、斐济、南极）本身
- * 不含孔洞，不会因此丢失信息。
+ * 先剔除纯极点边再取外环：南极洲大陆主体的外环恰好是那条 -90° 封闭边，
+ * 若直接以它判定整个 polygon，会连同其下真正的大陆轮廓一起丢弃。
+ *
+ * 外环需要切分时，内环归属会变得不确定，因此把切分结果各自作为独立的
+ * 单环 polygon 返回 —— 这些区域（俄罗斯远东、斐济、南极）本身不含孔洞，
+ * 不会因此丢失信息。
  */
 function normalizePolygon(polygon: Position[][]): Position[][][] {
-  const outerRing = polygon[0]
+  const rings = polygon.filter(ring => !isPolarEdge(ring))
+  const outerRing = rings[0]
   if (!outerRing) {
     return []
   }
@@ -375,7 +441,7 @@ function normalizePolygon(polygon: Position[][]): Position[][][] {
     return splitRingAtAntimeridian(outerRing).map(ring => [ring])
   }
 
-  const normalizedRings = polygon
+  const normalizedRings = rings
     .map(ring => ring.map((position) => {
       const [lng, lat] = position as [number, number]
       return [lng, clampLatitude(lat)] as Position
@@ -398,6 +464,31 @@ function normalizeGeometry(geometry: Polygon | MultiPolygon): MultiPolygon | nul
   return { coordinates: normalized, type: 'MultiPolygon' }
 }
 
+/**
+ * 由中国国界数据接管的地区。
+ *
+ * world-atlas 基于 Natural Earth，中印边界按实控线绘制且缺少南海诸岛。
+ * 这些地区改用 GS(2024)0650 号标准地图数据，见
+ * scripts/build-china-boundary.mjs。
+ */
+const CHINA_OVERRIDE_CODES = new Set(['CN', 'TW', 'HK', 'MO'])
+
+function buildChinaFeatures(): Feature<MultiPolygon, MapFeatureProperties>[] {
+  const source = chinaBoundary as unknown as FeatureCollection<MultiPolygon, { regionCode: string }>
+
+  return source.features.map(item => ({
+    geometry: {
+      coordinates: item.geometry.coordinates,
+      type: 'MultiPolygon',
+    },
+    properties: {
+      name: item.properties.regionCode,
+      regionCode: item.properties.regionCode,
+    },
+    type: 'Feature',
+  }))
+}
+
 function buildWorldData(): FeatureCollection<MultiPolygon, MapFeatureProperties> {
   const raw = topoFeature(
     countriesTopology as never,
@@ -412,27 +503,37 @@ function buildWorldData(): FeatureCollection<MultiPolygon, MapFeatureProperties>
       continue
     }
 
-    const normalizedGeometry = normalizeGeometry(geometry)
-    if (!normalizedGeometry) {
-      continue
-    }
-
     const numericId = typeof rawFeature.id === 'string'
       ? rawFeature.id
       : typeof rawFeature.id === 'number'
         ? String(rawFeature.id).padStart(3, '0')
         : ''
+    const regionCode = ISO_NUMERIC_TO_ALPHA2[numericId] ?? ''
+
+    // 这些地区整体由中国国界数据提供，跳过原始几何。
+    if (CHINA_OVERRIDE_CODES.has(regionCode)) {
+      continue
+    }
+
+    const normalizedGeometry = normalizeGeometry(geometry)
+    if (!normalizedGeometry) {
+      continue
+    }
+
     const rawName = rawFeature.properties?.name
 
     features.push({
       geometry: normalizedGeometry,
       properties: {
         name: typeof rawName === 'string' ? rawName : '',
-        regionCode: ISO_NUMERIC_TO_ALPHA2[numericId] ?? '',
+        regionCode,
       },
       type: 'Feature',
     })
   }
+
+  // 中国要素置于末尾，绘制顺序上覆盖与邻国重叠的争议区域。
+  features.push(...buildChinaFeatures())
 
   return { features, type: 'FeatureCollection' }
 }

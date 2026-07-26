@@ -26,18 +26,12 @@ const appStore = useAppStore()
 
 const mapElement = ref<HTMLElement | null>(null)
 const map = shallowRef<L.Map | null>(null)
-const tileLayer = shallowRef<L.TileLayer | null>(null)
 const countryLayer = shallowRef<L.GeoJSON | null>(null)
 const smallRegionLayer = shallowRef<L.LayerGroup | null>(null)
 const mapReady = ref(false)
+let resizeObserver: ResizeObserver | null = null
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
-
-const tileUrl = computed(() => {
-  return appStore.isDark
-    ? 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png'
-})
 
 /**
  * 港澳台在地图上是独立 feature，但节点归属上作为一个整体高亮，
@@ -118,7 +112,6 @@ watch(
 watch(
   () => appStore.isDark,
   () => {
-    tileLayer.value?.setUrl(tileUrl.value)
     refreshStyles()
   },
 )
@@ -145,27 +138,26 @@ function initMap() {
 
   const leafletMap = L.map(mapElement.value, {
     attributionControl: false,
-    center: [20, 0],
+    center: [0, 0],
+    // 等距圆柱投影下经纬度直接线性映射，±90 是有效值，无需回避极点。
+    crs: L.CRS.EPSG4326,
     maxBounds: [[-90, -180], [90, 180]],
     maxBoundsViscosity: 1,
-    maxZoom: 8,
-    minZoom: 2,
-    preferCanvas: true,
+    maxZoom: 7,
+    // 拖动时 Canvas 只重绘视口附近，默认 10% 余量会让平移中的图形被裁掉，
+    // 加大缓冲区换取拖动过程中的完整渲染。
+    renderer: L.canvas({ padding: 0.5 }),
     scrollWheelZoom: true,
     worldCopyJump: false,
-    zoom: 2,
+    // 缩放下限按容器尺寸推算，通常落在整数级之间，需要小数缩放支撑。
+    zoomSnap: 0.05,
+    zoomDelta: 0.5,
+    zoom: 1,
     zoomControl: true,
   })
 
-  tileLayer.value = L.tileLayer(tileUrl.value, {
-    crossOrigin: true,
-    maxZoom: 8,
-    minZoom: 2,
-    // 底图与国家面均不跨副本重复，避免边界处出现重影。
-    noWrap: true,
-  }).addTo(leafletMap)
-
-  // 国家几何只构建一次，后续仅通过 setStyle 更新外观。
+  // 海洋与未点亮陆地的底色由 GeoJSON 自绘，不再依赖外部瓦片：
+  // 瓦片只提供 Mercator 切片，与当前投影不匹配，且会带来额外网络请求。
   countryLayer.value = L.geoJSON(worldMapData as unknown as GeoJsonObject, {
     onEachFeature,
     style: feature => countryStyle(feature as CountryFeature | undefined),
@@ -179,15 +171,73 @@ function initMap() {
 
   setTimeout(() => {
     leafletMap.invalidateSize()
+    fitWorldToContainer()
   }, 0)
+
+  // 容器尺寸随窗口和布局配置变化，需同步重算缩放下限并回填视野。
+  if (typeof ResizeObserver !== 'undefined' && mapElement.value) {
+    resizeObserver = new ResizeObserver(() => {
+      leafletMap.invalidateSize()
+      fitWorldToContainer()
+    })
+    resizeObserver.observe(mapElement.value)
+  }
+}
+
+/**
+ * 让整个世界完整可见，并尽量填满容器。
+ *
+ * 取宽高两个方向各自需要的缩放中较小者：保证全球都在视野内，
+ * 剩余方向居中留白。该缩放同时作为下限，避免缩得比"看到全球"更小。
+ *
+ * 世界像素尺寸直接向 CRS 求取而非硬编码：Leaflet 各投影的
+ * scale 基准不同，写死常数会在换投影时静默算错。
+ */
+function fitWorldToContainer() {
+  const leafletMap = map.value
+  if (!leafletMap) {
+    return
+  }
+
+  const { x: width, y: height } = leafletMap.getSize()
+  if (width <= 0 || height <= 0) {
+    return
+  }
+
+  const crs = leafletMap.options.crs
+  if (!crs) {
+    return
+  }
+
+  // 以任意基准缩放测出世界尺寸，再据此换算铺满容器所需的缩放增量。
+  const probeZoom = 0
+  const topLeft = crs.latLngToPoint(L.latLng(90, -180), probeZoom)
+  const bottomRight = crs.latLngToPoint(L.latLng(-90, 180), probeZoom)
+  const worldWidth = Math.abs(bottomRight.x - topLeft.x)
+  const worldHeight = Math.abs(bottomRight.y - topLeft.y)
+  if (worldWidth <= 0 || worldHeight <= 0) {
+    return
+  }
+
+  const fitZoom = probeZoom + Math.min(
+    Math.log2(width / worldWidth),
+    Math.log2(height / worldHeight),
+  )
+
+  leafletMap.setMinZoom(fitZoom)
+  if (leafletMap.getZoom() < fitZoom) {
+    leafletMap.setZoom(fitZoom)
+  }
 }
 
 function destroyMap() {
+  resizeObserver?.disconnect()
+  resizeObserver = null
+
   if (map.value) {
     map.value.remove()
     map.value = null
   }
-  tileLayer.value = null
   countryLayer.value = null
   smallRegionLayer.value = null
   mapReady.value = false
@@ -257,28 +307,61 @@ function getStatusColor(status: RegionStatus): string {
   }
 }
 
+/** 状态色与陆地底色预混，得到不透明填充色。 */
+function getFillColor(status: RegionStatus): string {
+  const ratio = status === 'offline' ? 0.46 : 0.62
+  return mixWithLandColor(getStatusColor(status), ratio)
+}
+
+/**
+ * 把状态色按比例混入陆地底色。
+ *
+ * 争议区域在两国要素中重复出现，半透明填充会叠加显示为异色块。
+ * 改用预混后的不透明色，后绘制的中国要素即可完全覆盖邻国。
+ */
+function mixWithLandColor(color: string, ratio: number): string {
+  const land = appStore.isDark ? [30, 41, 59] : [226, 232, 240]
+  const rgb = hexToRgb(color)
+  if (!rgb) {
+    return color
+  }
+  const mixed = rgb.map((channel, index) =>
+    Math.round(channel * ratio + (land[index] as number) * (1 - ratio)),
+  )
+  return `rgb(${mixed[0]}, ${mixed[1]}, ${mixed[2]})`
+}
+
+function hexToRgb(color: string): number[] | null {
+  const match = /^#([\da-f]{6})$/i.exec(color)
+  if (!match?.[1]) {
+    return null
+  }
+  const value = Number.parseInt(match[1], 16)
+  return [(value >> 16) & 255, (value >> 8) & 255, value & 255]
+}
+
 function countryStyle(feature?: CountryFeature): L.PathOptions {
   const code = feature?.properties?.regionCode ?? ''
   const regionNodes = getRegionNodes(code)
   const status = getNodesStatus(regionNodes)
-  const color = getStatusColor(status)
 
+  // 未点亮的陆地此前依赖瓦片底图着色，现在由本图层自绘。
   if (status === 'inactive') {
     return {
-      color,
-      fillColor: 'transparent',
-      fillOpacity: 0,
-      opacity: appStore.isDark ? 0.42 : 0.5,
-      weight: 0.6,
+      color: appStore.isDark ? 'rgba(148, 163, 184, 0.28)' : 'rgba(100, 116, 139, 0.26)',
+      fillColor: appStore.isDark ? '#1e293b' : '#e2e8f0',
+      fillOpacity: 1,
+      opacity: 1,
+      weight: 0.5,
     }
   }
 
   return {
-    color,
-    fillColor: color,
-    fillOpacity: status === 'offline' ? 0.38 : 0.52,
+    color: getStatusColor(status),
+    fillColor: getFillColor(status),
+    fillOpacity: 1,
     opacity: 1,
-    weight: 1.8,
+    weight: 1.4,
   }
 }
 
@@ -298,8 +381,10 @@ function onEachFeature(feature: Feature, layer: Layer) {
       if (getRegionNodes(code).length === 0) {
         return
       }
-      pathLayer.setStyle({ fillOpacity: 0.72, weight: 2.6 })
-      pathLayer.bringToFront()
+      // 填充为不透明色，悬停改用加深色值与加粗描边表达。
+      // 不调用 bringToFront：会打乱中国要素覆盖争议区域的绘制顺序。
+      const status = getNodesStatus(getRegionNodes(code))
+      pathLayer.setStyle({ fillColor: mixWithLandColor(getStatusColor(status), 0.85), weight: 2.6 })
     },
   })
 
@@ -489,8 +574,13 @@ html.dark .earth-view-glass--enabled :deep(.earth-view) {
 .earth-view {
   position: relative;
   width: 100%;
-  height: min(680px, calc(100vh - 220px));
-  min-height: 460px;
+  /*
+   * 等距圆柱投影的世界是严格 2:1。容器按同比例给高，全球即可恰好铺满，
+   * 无需手动缩放或拖动；视口高度与像素上限用于避免超宽屏下过高。
+   */
+  aspect-ratio: 2 / 1;
+  max-height: min(820px, calc(100vh - 200px));
+  min-height: 360px;
   overflow: hidden;
   border: 1px solid var(--n-border-color);
   border-radius: var(--n-border-radius);
@@ -767,8 +857,9 @@ html.dark .earth-view-glass--enabled :deep(.earth-view) {
 
 @media (max-width: 768px) {
   .earth-view {
-    height: min(560px, calc(100vh - 260px));
-    min-height: 390px;
+    /* 窄屏保持同一比例，仅放宽高度上限。 */
+    max-height: calc(100vh - 240px);
+    min-height: 260px;
   }
 
   .earth-stats {
