@@ -43,3 +43,6 @@ __screenshots__/
 
 # Theme build output
 komari-theme-naive-build-*.zip
+
+# Local MCP server config (editor/agent tooling)
+.mcp.json
