@@ -1,17 +1,18 @@
 <script setup lang="ts">
-import type { Feature, FeatureCollection, GeoJsonObject } from 'geojson'
+import type { Feature, GeoJsonObject, MultiPolygon } from 'geojson'
 import type { Layer } from 'leaflet'
 import type { NodeData } from '@/stores/nodes'
+import type { MapFeatureProperties } from '@/utils/worldMapData'
 import * as L from 'leaflet'
-import { feature } from 'topojson-client'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
-import countriesTopology from 'world-atlas/countries-50m.json'
 import LiquidGlassSurface from '@/components/LiquidGlassSurface.vue'
 import { useAppStore } from '@/stores/app'
 import { getRegionCode, getRegionDisplayName, resolveNodeRegion } from '@/utils/regionHelper'
+import { worldMapData } from '@/utils/worldMapData'
 import 'leaflet/dist/leaflet.css'
 
 type RegionStatus = 'online' | 'offline' | 'partial' | 'inactive'
+type CountryFeature = Feature<MultiPolygon, MapFeatureProperties>
 
 const props = defineProps<{
   nodes: NodeData[]
@@ -32,38 +33,27 @@ const mapReady = ref(false)
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
 
-const worldData = feature(
-  countriesTopology as never,
-  (countriesTopology as unknown as { objects: { countries: never } }).objects.countries,
-) as unknown as FeatureCollection
-
 const tileUrl = computed(() => {
   return appStore.isDark
     ? 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png'
     : 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png'
 })
 
-const regionNameOverrides: Record<string, string> = {
-  CN: 'China Mainland',
-  HK: 'Hong Kong S.A.R., China',
-  MO: 'Macau S.A.R., China',
-  TW: 'Taiwan, Province of China',
-}
-
-const mapNameAliases: Record<string, string> = {
-  'China': 'China Mainland',
-  'Hong Kong': 'Hong Kong S.A.R., China',
-  'Macao': 'Macau S.A.R., China',
-  'Republic of Korea': 'South Korea',
-  'Taiwan': 'Taiwan, Province of China',
-  'United States of America': 'United States',
-}
+/**
+ * 港澳台在地图上是独立 feature，但节点归属上作为一个整体高亮，
+ * 与 regionHelper 中大中华区的处理保持一致。
+ */
+const chinaRegionCodes = new Set(['CN', 'HK', 'MO', 'TW'])
 
 interface SmallRegionDisplay {
   anchor: [number, number]
   label: [number, number]
 }
 
+/**
+ * 面积过小、在低缩放级别下不足一个像素的地区，
+ * 用引线加圆形标签牵引到旁边空白处显示。
+ */
 const smallRegionDisplays: Record<string, SmallRegionDisplay> = {
   HK: { anchor: [22.3193, 114.1694], label: [22.85, 116.25] },
   MO: { anchor: [22.1987, 113.5439], label: [21.35, 111.7] },
@@ -73,28 +63,26 @@ const smallRegionDisplays: Record<string, SmallRegionDisplay> = {
   VA: { anchor: [41.9029, 12.4534], label: [41.1, 14.1] },
 }
 
-const smallRegionCodes = new Set(Object.keys(smallRegionDisplays))
-const chinaRegionCodes = new Set(['CN', 'HK', 'MO', 'TW'])
-const chinaRegionNames = new Set(Object.values(regionNameOverrides))
-
 function getEffectiveRegion(node: NodeData): string {
   return resolveNodeRegion(node.region, node.tags, appStore.enableNodeFlagOverride)
 }
 
-const groupedNodes = computed(() => {
+/** 节点按地区二字码分组，是所有着色和交互的唯一数据源。 */
+const nodesByRegionCode = computed(() => {
   const groups = new Map<string, NodeData[]>()
 
   for (const node of props.nodes) {
-    const regionName = getMapRegionName(getEffectiveRegion(node))
-    if (!regionName)
+    const code = getRegionCode(getEffectiveRegion(node))
+    if (!code) {
       continue
+    }
 
-    const regionNodes = groups.get(regionName)
-    if (regionNodes) {
-      regionNodes.push(node)
+    const existing = groups.get(code)
+    if (existing) {
+      existing.push(node)
     }
     else {
-      groups.set(regionName, [node])
+      groups.set(code, [node])
     }
   }
 
@@ -103,16 +91,6 @@ const groupedNodes = computed(() => {
 
 const chinaRegionNodes = computed(() => {
   return props.nodes.filter(node => chinaRegionCodes.has(getRegionCode(getEffectiveRegion(node))))
-})
-
-const activeRegionNames = computed(() => {
-  const names = new Set(groupedNodes.value.keys())
-  if (chinaRegionNodes.value.length > 0) {
-    for (const name of chinaRegionNames) {
-      names.add(name)
-    }
-  }
-  return names
 })
 
 const nodeCounts = computed(() => {
@@ -124,10 +102,15 @@ const nodeCounts = computed(() => {
   }
 })
 
+/**
+ * 节点数据变化时只刷新样式，不重建几何图层。
+ * 默认 3 秒一次的数据刷新如果全量重建 241 个国家的 GeoJSON，
+ * 会造成明显的闪烁和无谓的 CPU 开销。
+ */
 watch(
   () => props.nodes,
   () => {
-    renderLayers()
+    refreshStyles()
   },
   { deep: true },
 )
@@ -136,14 +119,14 @@ watch(
   () => appStore.isDark,
   () => {
     tileLayer.value?.setUrl(tileUrl.value)
-    renderLayers()
+    refreshStyles()
   },
 )
 
 watch(
   () => appStore.enableNodeFlagOverride,
   () => {
-    renderLayers()
+    refreshStyles()
   },
 )
 
@@ -178,11 +161,21 @@ function initMap() {
     crossOrigin: true,
     maxZoom: 8,
     minZoom: 2,
+    // 底图与国家面均不跨副本重复，避免边界处出现重影。
+    noWrap: true,
   }).addTo(leafletMap)
+
+  // 国家几何只构建一次，后续仅通过 setStyle 更新外观。
+  countryLayer.value = L.geoJSON(worldMapData as unknown as GeoJsonObject, {
+    onEachFeature,
+    style: feature => countryStyle(feature as CountryFeature | undefined),
+  }).addTo(leafletMap)
+
+  smallRegionLayer.value = L.layerGroup().addTo(leafletMap)
 
   map.value = leafletMap
   mapReady.value = true
-  renderLayers()
+  refreshStyles()
 
   setTimeout(() => {
     leafletMap.invalidateSize()
@@ -200,53 +193,43 @@ function destroyMap() {
   mapReady.value = false
 }
 
-function renderLayers() {
-  if (!map.value)
-    return
-
-  const leafletMap = map.value
-
-  if (countryLayer.value) {
-    countryLayer.value.remove()
-    countryLayer.value = null
-  }
+/** 重设国家面样式并重建小地区标注（标注数量少，重建成本可忽略）。 */
+function refreshStyles() {
+  countryLayer.value?.setStyle(feature => countryStyle(feature as CountryFeature | undefined))
 
   if (smallRegionLayer.value) {
-    smallRegionLayer.value.remove()
-    smallRegionLayer.value = null
+    smallRegionLayer.value.clearLayers()
+    renderSmallRegions(smallRegionLayer.value)
   }
-
-  countryLayer.value = L.geoJSON(worldData as GeoJsonObject, {
-    onEachFeature,
-    style: countryStyle,
-  }).addTo(leafletMap)
-
-  smallRegionLayer.value = L.layerGroup()
-  renderSmallRegions(smallRegionLayer.value)
-  smallRegionLayer.value.addTo(leafletMap)
 }
 
-function getMapRegionName(region: string): string {
-  const code = getRegionCode(region)
-  if (regionNameOverrides[code])
-    return regionNameOverrides[code]
-  return getRegionDisplayName(region, 'en')
-}
-
-function getFeatureName(feature: Feature | undefined): string {
-  const rawName = feature?.properties?.name
-  if (typeof rawName !== 'string')
-    return ''
-  return mapNameAliases[rawName] ?? rawName
-}
-
-function getRegionStatus(regionName: string): RegionStatus {
-  if (chinaRegionNames.has(regionName) && chinaRegionNodes.value.length > 0) {
-    return getNodesStatus(chinaRegionNodes.value)
+/** 取某地区应展示的节点；大中华区各地图 feature 共享同一组节点。 */
+function getRegionNodes(code: string): NodeData[] {
+  if (!code) {
+    return []
   }
+  if (chinaRegionCodes.has(code) && chinaRegionNodes.value.length > 0) {
+    return chinaRegionNodes.value
+  }
+  return nodesByRegionCode.value.get(code) ?? []
+}
 
-  const nodes = groupedNodes.value.get(regionName)
-  return getNodesStatus(nodes ?? [])
+function getRegionLabel(code: string): string {
+  return getRegionDisplayName(getEmojiForCode(code), 'zh')
+}
+
+/** regionHelper 以 emoji 为主键，这里通过二字码反查用于取显示名。 */
+function getEmojiForCode(code: string): string {
+  if (code.length !== 2) {
+    return code
+  }
+  const base = 0x1F1E6
+  const first = code.charCodeAt(0) - 65
+  const second = code.charCodeAt(1) - 65
+  if (first < 0 || first > 25 || second < 0 || second > 25) {
+    return code
+  }
+  return String.fromCodePoint(base + first, base + second)
 }
 
 function getNodesStatus(nodes: NodeData[]): RegionStatus {
@@ -274,13 +257,13 @@ function getStatusColor(status: RegionStatus): string {
   }
 }
 
-function countryStyle(feature?: Feature): L.PathOptions {
-  const regionName = getFeatureName(feature)
-  const isActive = activeRegionNames.value.has(regionName)
-  const status = isActive ? getRegionStatus(regionName) : 'inactive'
+function countryStyle(feature?: CountryFeature): L.PathOptions {
+  const code = feature?.properties?.regionCode ?? ''
+  const regionNodes = getRegionNodes(code)
+  const status = getNodesStatus(regionNodes)
   const color = getStatusColor(status)
 
-  if (!isActive) {
+  if (status === 'inactive') {
     return {
       color,
       fillColor: 'transparent',
@@ -300,50 +283,54 @@ function countryStyle(feature?: Feature): L.PathOptions {
 }
 
 function onEachFeature(feature: Feature, layer: Layer) {
-  const regionName = getFeatureName(feature)
-  const regionNodes = getDisplayRegionNodes(regionName)
-  if (!regionNodes || regionNodes.length === 0)
-    return
-
+  const code = (feature as CountryFeature).properties?.regionCode ?? ''
   const pathLayer = layer as L.Path
-  layer.bindTooltip(getTooltipContent(regionName, regionNodes), {
+
+  layer.on({
+    click: () => {
+      handleRegionClick(getRegionNodes(code))
+    },
+    mouseout: () => {
+      pathLayer.setStyle(countryStyle(feature as CountryFeature))
+    },
+    mouseover: () => {
+      // 无节点的地区不做悬停反馈，避免误导为可点击。
+      if (getRegionNodes(code).length === 0) {
+        return
+      }
+      pathLayer.setStyle({ fillOpacity: 0.72, weight: 2.6 })
+      pathLayer.bringToFront()
+    },
+  })
+
+  // tooltip 内容依赖实时节点状态，用函数形式在每次打开时求值。
+  layer.bindTooltip(() => {
+    const regionNodes = getRegionNodes(code)
+    return regionNodes.length > 0
+      ? getTooltipContent(getRegionLabel(code), regionNodes)
+      : ''
+  }, {
     className: 'earth-tooltip',
     direction: 'top',
     opacity: 1,
     sticky: true,
   })
-
-  layer.on({
-    click: () => handleRegionClick(regionNodes),
-    mouseout: () => {
-      pathLayer.setStyle(countryStyle(feature))
-    },
-    mouseover: () => {
-      pathLayer.setStyle({
-        fillOpacity: 0.72,
-        weight: 2.6,
-      })
-      pathLayer.bringToFront()
-    },
-  })
 }
 
 function renderSmallRegions(layerGroup: L.LayerGroup) {
-  for (const regionName of activeRegionNames.value) {
-    const regionNodes = getDisplayRegionNodes(regionName)
-    if (!regionNodes || regionNodes.length === 0)
+  for (const [code, display] of Object.entries(smallRegionDisplays)) {
+    const regionNodes = getRegionNodes(code)
+    if (regionNodes.length === 0) {
       continue
+    }
 
-    const firstNode = regionNodes[0]
-    if (!firstNode)
+    // 小地区标签展示自身节点状态，不跟随大中华区聚合结果。
+    const ownNodes = nodesByRegionCode.value.get(code) ?? []
+    if (ownNodes.length === 0) {
       continue
+    }
 
-    const code = getRegionCodeByMapName(regionName) ?? getRegionCode(getEffectiveRegion(firstNode))
-    const display = smallRegionDisplays[code]
-    if (!display || !smallRegionCodes.has(code))
-      continue
-
-    const status = getRegionStatus(regionName)
+    const status = getNodesStatus(ownNodes)
     const color = getStatusColor(status)
 
     const leader = L.polyline([display.anchor, display.label], {
@@ -377,7 +364,7 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
       keyboard: false,
     })
 
-    marker.bindTooltip(getTooltipContent(regionName, regionNodes), {
+    marker.bindTooltip(getTooltipContent(getRegionLabel(code), ownNodes), {
       className: 'earth-tooltip',
       direction: 'top',
       offset: [0, -8],
@@ -385,7 +372,7 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
     })
 
     marker.on({
-      click: () => handleRegionClick(regionNodes),
+      click: () => handleRegionClick(ownNodes),
       mouseout: () => {
         marker.getElement()?.classList.remove('earth-small-region-marker--hover')
         leader.setStyle({ opacity: 0.78, weight: 1.5 })
@@ -398,21 +385,6 @@ function renderSmallRegions(layerGroup: L.LayerGroup) {
 
     layerGroup.addLayer(marker)
   }
-}
-
-function getDisplayRegionNodes(regionName: string): NodeData[] {
-  if (chinaRegionNames.has(regionName) && chinaRegionNodes.value.length > 0) {
-    return chinaRegionNodes.value
-  }
-  return groupedNodes.value.get(regionName) ?? []
-}
-
-function getRegionCodeByMapName(regionName: string): string | undefined {
-  for (const [code, name] of Object.entries(regionNameOverrides)) {
-    if (name === regionName)
-      return code
-  }
-  return undefined
 }
 
 function handleRegionClick(regionNodes: NodeData[]) {
