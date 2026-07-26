@@ -57,6 +57,9 @@ export default defineConfig({
     'glass-card-sm': 'glass-8 glass-bg dark:glass-bg-dark',
     'glass-card-lg': 'glass-16 glass-bg dark:glass-bg-dark',
   },
+  // glass-N 由 store 在运行时按主题配置拼接（见 getBlurClass），
+  // UnoCSS 静态扫描抓不到这些字面量，必须预生成 0-48 的全部档位。
+  safelist: Array.from({ length: 49 }, (_, i) => `glass-${i}`),
   preflights: [
     {
       layer: 'base',

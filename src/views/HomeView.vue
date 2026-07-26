@@ -187,13 +187,19 @@ watch(canUseRenewalStats, (allowed) => {
 })
 
 const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interface'))
+
+// 卡片网格的每列下限走内联变量：UnoCSS 方括号语法是编译期静态扫描的，
+// 无法从主题配置读取运行时值。
+const cardGridStyle = computed(() => ({
+  '--card-min-width': `${appStore.cardMinWidth}px`,
+}))
 </script>
 
 <template>
   <div class="home-view">
     <div v-if="appStore.connectionError" class="alert px-4">
       <NAlert type="error" title="RPC 服务错误" show-icon>
-        连接服务器失败，请检查网络设置或刷新页面后再试。
+        连接服务器失败，请检查网络设置<span class="whitespace-nowrap">或刷新页面后再试。</span>
       </NAlert>
     </div>
     <!-- 自定义公告 -->
@@ -202,8 +208,10 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         <MarkdownRenderer :content="appStore.alertContent" />
       </NAlert>
     </div>
-    <NodeGeneralCards />
-    <NDivider class="my-0! px-4!" dashed />
+    <template v-if="appStore.showGeneralCards">
+      <NodeGeneralCards />
+      <NDivider class="my-0! px-4!" dashed />
+    </template>
     <div class="node-info p-4 flex flex-col gap-4">
       <div class="search flex gap-2 items-center">
         <LiquidGlassSurface scope="interface" class="search-glass" :class="{ 'search-glass--enabled': hasLiquidGlass }">
@@ -265,7 +273,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
         <NTabs v-if="showGroupTabs" v-model:value="appStore.nodeSelectedGroup" animated>
           <NTabPane v-for="group in groups" :key="group.name" :tab="group.tab" :name="group.name">
             <!-- Card 视图 -->
-            <div v-if="nodeList.length !== 0 && appStore.nodeViewMode === 'card'" class="gap-4 grid grid-cols-1 sm:grid-cols-[repeat(auto-fill,minmax(340px,1fr))]">
+            <div v-if="nodeList.length !== 0 && appStore.nodeViewMode === 'card'" class="node-card-grid gap-4 grid grid-cols-1" :style="cardGridStyle">
               <NodeCard
                 v-for="node in nodeList"
                 :key="node.uuid"
@@ -330,6 +338,13 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('interf
 </template>
 
 <style scoped lang="scss">
+// 移动端保持单列；从 sm 断点起按主题配置的最小宽度自动分栏。
+@media (min-width: 640px) {
+  .node-card-grid {
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width, 340px), 1fr));
+  }
+}
+
 .search-glass {
   display: block;
   flex: 1;

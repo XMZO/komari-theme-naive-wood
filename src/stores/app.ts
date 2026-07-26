@@ -49,18 +49,11 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, value))
 }
 
+// glass-0 ~ glass-48 已在 uno.config.ts 的 safelist 中预生成，可直接使用精确半径。
 function getBlurClass(radius: number): string {
   if (radius <= 0)
     return ''
-  if (radius <= 8)
-    return 'glass-8'
-  if (radius <= 12)
-    return 'glass-12'
-  if (radius <= 16)
-    return 'glass-16'
-  if (radius <= 20)
-    return 'glass-20'
-  return `glass-${radius}`
+  return `glass-${Math.min(48, Math.round(radius))}`
 }
 
 const useAppStore = defineStore('app', () => {
@@ -695,6 +688,16 @@ const useAppStore = defineStore('app', () => {
     return false
   })
 
+  // 卡片自动分栏的最小宽度，控制 grid auto-fill 的每列下限。
+  const cardMinWidth = computed<number>(() => {
+    return clampNumber(publicSettings.value?.theme_settings?.cardMinWidth, 340, 260, 640)
+  })
+
+  const showGeneralCards = computed<boolean>(() => {
+    const value = publicSettings.value?.theme_settings?.showGeneralCards
+    return typeof value === 'boolean' ? value : true
+  })
+
   const cardMaterial = computed<CardMaterial>(() => {
     const settings = publicSettings.value?.theme_settings
     const validMaterials: CardMaterial[] = ['auto', 'solid', 'translucent', 'acrylic', 'liquid-glass']
@@ -730,11 +733,16 @@ const useAppStore = defineStore('app', () => {
   })
 
   // 仅亚克力材质给卡片加高斯模糊；清晰半透明材质不模糊背景。
+  // 未配置时回退到「背景模糊 + 8」的历史行为，保持旧站点视觉不变。
   const cardBlurRadius = computed<number>(() => {
-    if (resolvedCardMaterial.value === 'acrylic') {
-      return backgroundBlur.value > 0 ? Math.min(24, backgroundBlur.value + 8) : 12
+    if (resolvedCardMaterial.value !== 'acrylic') {
+      return 0
     }
-    return 0
+    const settings = publicSettings.value?.theme_settings
+    if (settings && typeof settings.cardBlurRadius === 'number' && settings.cardBlurRadius >= 0) {
+      return Math.min(48, settings.cardBlurRadius)
+    }
+    return backgroundBlur.value > 0 ? Math.min(24, backgroundBlur.value + 8) : 12
   })
 
   const cardMaterialBlurClass = computed<string>(() => getBlurClass(cardBlurRadius.value))
@@ -890,6 +898,8 @@ const useAppStore = defineStore('app', () => {
     backgroundOverlay,
     showSaveBackgroundButton,
     cardMaterial,
+    cardMinWidth,
+    showGeneralCards,
     resolvedCardMaterial,
     cardMaterialActive,
     cardMaterialClass,
