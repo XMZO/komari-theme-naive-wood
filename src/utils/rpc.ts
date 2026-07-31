@@ -6,6 +6,9 @@
 import type { RpcCollection } from '@/utils/rpcCompatibility'
 import { normalizeRpcCollection, RpcCompatibilityError } from '@/utils/rpcCompatibility'
 
+const LEGACY_EXPIRY_VERSIONS = new Set(['1.2.5', '1.2.5-fix1', '1.2.5-fix2', '1.2.6'])
+const LEGACY_SHANGHAI_EXPIRY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T16:00:00(?:\.0+)?\+08:00$/
+
 // ==================== 类型定义 ====================
 
 /** JSON-RPC 2.0 请求结构 */
@@ -90,6 +93,30 @@ export interface Client {
   traffic_limit_type: string
   created_at: string
   updated_at: string
+}
+
+/** Undo the LocalTime UTC-midnight shift present in Komari 1.2.5-1.2.6. */
+function normalizeLegacyClientExpiry(client: Client): Client {
+  const raw = client.expired_at?.trim()
+  const match = raw ? LEGACY_SHANGHAI_EXPIRY_PATTERN.exec(raw) : null
+  if (!raw || !match)
+    return client
+
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = new Date(Date.UTC(year, month - 1, day))
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day)
+    return client
+
+  date.setUTCDate(date.getUTCDate() + 1)
+  const correctedYear = date.getUTCFullYear()
+  const correctedMonth = String(date.getUTCMonth() + 1).padStart(2, '0')
+  const correctedDay = String(date.getUTCDate()).padStart(2, '0')
+  return {
+    ...client,
+    expired_at: `${correctedYear}-${correctedMonth}-${correctedDay}T00:00:00+08:00`,
+  }
 }
 
 /** 公开站点信息 */
@@ -755,6 +782,7 @@ export class RpcClient {
  */
 export class KomariRpc {
   private client: RpcClient
+  private compatibilityVersionPromise: Promise<string | null> | null = null
 
   constructor(options: RpcClientOptions = {}) {
     this.client = new RpcClient(options)
@@ -788,6 +816,15 @@ export class KomariRpc {
         throw new RpcTransportError('protocol', error.message)
       throw error
     }
+  }
+
+  private getCompatibilityVersion(): Promise<string | null> {
+    if (!this.compatibilityVersionPromise) {
+      this.compatibilityVersionPromise = this.getVersion()
+        .then(info => info.version.replace(/^v/, ''))
+        .catch(() => null)
+    }
+    return this.compatibilityVersionPromise
   }
 
   // ==================== 内置方法 ====================
@@ -840,7 +877,21 @@ export class KomariRpc {
    * 兼容 1.2.5-fix1 的有序数组与其他版本的 UUID 字典。
    */
   async getNodes(): Promise<Record<string, Client>> {
-    return this.callCollection<Client>('common:getNodes', client => client.uuid)
+    const clients = await this.callCollection<Client>('common:getNodes', client => client.uuid)
+    const hasLegacyExpiryShape = Object.values(clients).some(client => (
+      typeof client.expired_at === 'string'
+      && LEGACY_SHANGHAI_EXPIRY_PATTERN.test(client.expired_at.trim())
+    ))
+    if (!hasLegacyExpiryShape)
+      return clients
+
+    const compatibilityVersion = await this.getCompatibilityVersion()
+    if (!compatibilityVersion || !LEGACY_EXPIRY_VERSIONS.has(compatibilityVersion))
+      return clients
+
+    return Object.fromEntries(
+      Object.entries(clients).map(([uuid, client]) => [uuid, normalizeLegacyClientExpiry(client)]),
+    )
   }
 
   /**

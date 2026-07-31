@@ -16,7 +16,7 @@ import {
   PING_HISTORY_METRIC_KEYS,
   queryMetricsIfSupported,
 } from '@/utils/metrics'
-import { cutPeakValues } from '@/utils/recordHelper'
+import { cutPeakValues, interpolateNullsLinear } from '@/utils/recordHelper'
 import { getSharedRpc, isRpcMethodUnavailable } from '@/utils/rpc'
 import '@/utils/echarts' // 共享 ECharts 配置
 
@@ -602,9 +602,19 @@ const chartData = computed(() => {
   if (selectedKeys.length === 0)
     return []
 
-  return cutPeak.value
+  const sourceRows = cutPeak.value
     ? applyCutPeakWithoutFillingGaps(pingRows.value, selectedKeys)
     : pingRows.value
+
+  // 旧 common:getRecords 以 null 表示失败探测，且各任务回报时间可能不完全对齐。
+  // 恢复旧主题的有限插值；metrics 空桶继续保持断开，避免掩盖新版存储缺口。
+  return metricRetentionHours.value === null
+    ? interpolateNullsLinear(sourceRows, selectedKeys, {
+      maxGapMultiplier: 6,
+      minCapMs: 2 * 60_000,
+      maxCapMs: 30 * 60_000,
+    }) as PingChartRow[]
+    : sourceRows
 })
 
 const emptyDescription = computed(() => maxPingRecordPreserveTime.value === 0
