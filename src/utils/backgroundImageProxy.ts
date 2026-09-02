@@ -16,9 +16,21 @@ export type PreparedBackgroundImage
     sourceUrl: string
   }
 
-export async function prepareBackgroundImage(sourceUrl: string): Promise<PreparedBackgroundImage> {
+export async function prepareBackgroundImage(
+  sourceUrl: string,
+  onResolved?: (resolvedUrl: string) => void,
+): Promise<PreparedBackgroundImage> {
   const requestUrl = createBackgroundImageRequestUrl(sourceUrl)
-  const resolvedUrl = await resolveClientSelectedImageUrl(requestUrl).catch(() => requestUrl)
+  let resolvedUrl = requestUrl
+  try {
+    resolvedUrl = await resolveClientSelectedImageUrl(requestUrl)
+    if (resolvedUrl !== requestUrl) {
+      onResolved?.(resolvedUrl)
+    }
+  }
+  catch {
+    // If a resolver is unavailable, continue with the original image URL.
+  }
   const preferReadableProxy = shouldPreferReadableProxy(resolvedUrl)
 
   if (preferReadableProxy) {
@@ -252,7 +264,7 @@ function shouldPreferReadableProxy(sourceUrl: string) {
 
 function shouldUseClientJsonResolver(sourceUrl: string) {
   try {
-    return new URL(sourceUrl).hostname === 't.alcy.cc'
+    return new URL(sourceUrl, window.location.href).hostname === 't.alcy.cc'
   }
   catch {
     return false

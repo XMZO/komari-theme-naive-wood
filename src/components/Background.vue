@@ -3,7 +3,10 @@ import { NButton } from 'naive-ui'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
-import { cleanupLegacyBackgroundProxy, prepareBackgroundImage } from '@/utils/backgroundImageProxy'
+import {
+  cleanupLegacyBackgroundProxy,
+  prepareBackgroundImage,
+} from '@/utils/backgroundImageProxy'
 
 const appStore = useAppStore()
 
@@ -101,19 +104,10 @@ const showLoadingBackground = computed(() => {
 
 cleanupLegacyBackgroundProxy()
 
-// 图片加载处理。优先取成可读 Blob，显示和下载复用同一份字节。
+// 图片加载处理。先确定随机图的真实地址，再取成可读 Blob；显示和下载锁定同一张图。
 let imageRequestId = 0
-let imageFallbackTimer: number | null = null
-
-function clearImageFallbackTimer() {
-  if (imageFallbackTimer !== null) {
-    window.clearTimeout(imageFallbackTimer)
-    imageFallbackTimer = null
-  }
-}
 
 function resetImageState() {
-  clearImageFallbackTimer()
   if (imageObjectUrl.value) {
     URL.revokeObjectURL(imageObjectUrl.value)
   }
@@ -140,23 +134,24 @@ async function loadImage(url: string) {
 
   isImagePreparing.value = true
 
-  imageFallbackTimer = window.setTimeout(() => {
-    if (requestId !== imageRequestId || imageDisplayUrl.value) {
-      return
-    }
-
-    imageDisplayUrl.value = url
-  }, 1800)
-
   let result: Awaited<ReturnType<typeof prepareBackgroundImage>>
   try {
-    result = await prepareBackgroundImage(url)
+    result = await prepareBackgroundImage(url, (resolvedUrl) => {
+      if (requestId !== imageRequestId) {
+        return
+      }
+
+      imageSourceUrl.value = resolvedUrl
+      // JSON 随机图已经给出了本次实际图片，先显示它，避免再请求一次随机地址。
+      if (!imageDisplayUrl.value) {
+        imageDisplayUrl.value = resolvedUrl
+      }
+    })
   }
   catch {
     if (requestId !== imageRequestId) {
       return
     }
-    clearImageFallbackTimer()
     if (!imageDisplayUrl.value) {
       imageDisplayUrl.value = url
     }
@@ -171,7 +166,6 @@ async function loadImage(url: string) {
     return
   }
 
-  clearImageFallbackTimer()
   imageSourceUrl.value = result.sourceUrl
   isImagePreparing.value = false
 
@@ -179,13 +173,19 @@ async function loadImage(url: string) {
     imageBlob.value = result.blob
     imageObjectUrl.value = URL.createObjectURL(result.blob)
     imageDownloadUrl.value = imageObjectUrl.value
-    imageDisplayUrl.value = imageObjectUrl.value
+    // 真实地址已经成功显示时保持原 src；尚未显示或加载失败时再切到同一张图的 Blob。
+    if (!imageDisplayUrl.value || !isLoaded.value || hasError.value) {
+      imageDisplayUrl.value = imageObjectUrl.value
+      hasError.value = false
+    }
     return
   }
 
   imageBlob.value = null
-  imageDisplayUrl.value = result.displayUrl
   imageDownloadUrl.value = ''
+  if (!imageDisplayUrl.value) {
+    imageDisplayUrl.value = result.displayUrl
+  }
 }
 
 function handleImageLoaded() {
@@ -194,6 +194,18 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
+  if (
+    imageObjectUrl.value
+    && imageDisplayUrl.value !== imageObjectUrl.value
+    && !imageDirectFallbackAttempted.value
+  ) {
+    imageDirectFallbackAttempted.value = true
+    imageDisplayUrl.value = imageObjectUrl.value
+    isLoaded.value = false
+    hasError.value = false
+    return
+  }
+
   if (
     imageSourceUrl.value
     && imageDisplayUrl.value !== imageSourceUrl.value
