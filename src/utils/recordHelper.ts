@@ -174,6 +174,8 @@ export function interpolateNullsLinear(
       /** 统一的下限与上限（用于钳制） */
       minCapMs?: number
       maxCapMs?: number
+      /** 只填充显式 null，保留其他序列时间点造成的 undefined */
+      onlyExplicitNulls?: boolean
     },
 ): AnyRecord[] {
   if (!rows || rows.length === 0 || !keys.length)
@@ -193,6 +195,7 @@ export function interpolateNullsLinear(
   const multiplier = opts.maxGapMultiplier ?? 6
   const minCap = opts.minCapMs ?? 2 * 60_000 // 2min
   const maxCap = opts.maxCapMs ?? 30 * 60_000 // 30min
+  const onlyExplicitNulls = opts.onlyExplicitNulls === true
 
   const clamp = (v: number, lo: number, hi: number) =>
     Math.max(lo, Math.min(hi, v))
@@ -261,6 +264,8 @@ export function interpolateNullsLinear(
         continue // 间隔太大，保持空洞
 
       for (let j = i0 + 1; j < i1; j++) {
+        if (onlyExplicitNulls && rows[j]?.[key] !== null)
+          continue
         const tj = times[j]
         if (tj === undefined)
           continue

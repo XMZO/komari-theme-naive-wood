@@ -172,6 +172,7 @@ interface PingDataPayload {
   rows: PingChartRow[]
   tasks: TaskInfo[]
   retentionHours: number | null
+  queryIntervalSeconds: number | null
 }
 
 // 数据状态
@@ -179,6 +180,7 @@ const pingRows = shallowRef<PingChartRow[]>([])
 const tasks = shallowRef<TaskInfo[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const metricQueryIntervalSeconds = ref<number | null>(null)
 
 // 任务选择
 const selectedTaskIds = ref<string[]>([])
@@ -387,6 +389,12 @@ function buildMetricPayload(
     rows: Array.from(rowMap.values()).sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf()),
     tasks: orderedTasks,
     retentionHours,
+    queryIntervalSeconds: query.series.reduce<number | null>((smallest, series) => {
+      const interval = series.interval_seconds
+      if (typeof interval !== 'number' || !Number.isFinite(interval) || interval <= 0)
+        return smallest
+      return smallest === null ? interval : Math.min(smallest, interval)
+    }, null),
   }
 }
 
@@ -427,6 +435,7 @@ function buildLegacyPayload(result: LegacyPingRecordsResponse): PingDataPayload 
     rows: Array.from(grouped.values()).sort((a, b) => dayjs(a.time).valueOf() - dayjs(b.time).valueOf()),
     tasks: Array.from(taskMap.values()),
     retentionHours: null,
+    queryIntervalSeconds: null,
   }
 }
 
@@ -449,7 +458,7 @@ async function fetchMetricPayload(uuid: string, hours: number): Promise<PingData
   const retentionHours = minimumPositivePingRetentionHours(definitions)
   const metricKeys = activePingMetricKeys(definitions)
   if (retentionHours === 0 || hours <= 0 || metricKeys.length === 0) {
-    return { rows: [], tasks: [], retentionHours }
+    return { rows: [], tasks: [], retentionHours, queryIntervalSeconds: null }
   }
 
   const [statsResponse, publicTasks] = await Promise.all([
@@ -492,7 +501,7 @@ async function fetchMetricPayload(uuid: string, hours: number): Promise<PingData
 
 async function fetchLegacyPayload(uuid: string, hours: number): Promise<PingDataPayload> {
   if (hours <= 0)
-    return { rows: [], tasks: [], retentionHours: null }
+    return { rows: [], tasks: [], retentionHours: null, queryIntervalSeconds: null }
 
   const result = await rpc.getClient().call<LegacyPingRecordsResponse>('common:getRecords', {
     uuid,
@@ -539,6 +548,7 @@ async function fetchRecords(options: { background?: boolean } = {}): Promise<voi
 
     error.value = null
     metricRetentionHours.value = payload.retentionHours
+    metricQueryIntervalSeconds.value = payload.queryIntervalSeconds
     pingRows.value = payload.rows
     tasks.value = payload.tasks
     syncSelectedTasks(payload.tasks)
@@ -551,6 +561,7 @@ async function fetchRecords(options: { background?: boolean } = {}): Promise<voi
     }
     else {
       error.value = err instanceof Error ? err.message : '获取数据失败'
+      metricQueryIntervalSeconds.value = null
       pingRows.value = []
       tasks.value = []
     }
@@ -596,26 +607,51 @@ function applyCutPeakWithoutFillingGaps(data: PingChartRow[], keys: string[]): P
   return output
 }
 
-const chartData = computed(() => {
+const chartSourceData = computed(() => {
   const selectedKeys = selectedTaskIds.value
 
   if (selectedKeys.length === 0)
     return []
 
-  const sourceRows = cutPeak.value
+  return cutPeak.value
     ? applyCutPeakWithoutFillingGaps(pingRows.value, selectedKeys)
     : pingRows.value
+})
 
-  // 旧 common:getRecords 以 null 表示失败探测，且各任务回报时间可能不完全对齐。
-  // 恢复旧主题的有限插值；metrics 空桶继续保持断开，避免掩盖新版存储缺口。
-  return metricRetentionHours.value === null
-    ? interpolateNullsLinear(sourceRows, selectedKeys, {
+const chartData = computed(() => {
+  const selectedKeys = selectedTaskIds.value
+  const sourceRows = chartSourceData.value
+
+  if (selectedKeys.length === 0)
+    return []
+
+  if (metricRetentionHours.value === null) {
+    // 旧 common:getRecords 以 null 表示失败探测，且各任务回报时间可能不完全对齐。
+    return interpolateNullsLinear(sourceRows, selectedKeys, {
       maxGapMultiplier: 6,
       minCapMs: 2 * 60_000,
       maxCapMs: 30 * 60_000,
     }) as PingChartRow[]
-    : sourceRows
+  }
+
+  const queryIntervalSeconds = metricQueryIntervalSeconds.value
+  if (queryIntervalSeconds === null)
+    return sourceRows
+
+  // metrics 只连接一个孤立采样空洞。连续丢包、长时间缺报与首尾空洞仍保持断开。
+  return interpolateNullsLinear(sourceRows, selectedKeys, {
+    maxGapMs: queryIntervalSeconds * 2 * 1000,
+    onlyExplicitNulls: true,
+  }) as PingChartRow[]
 })
+
+function isInterpolatedPoint(taskID: string, dataIndex: number): boolean {
+  const sourceValue = chartSourceData.value[dataIndex]?.[taskID]
+  const chartValue = chartData.value[dataIndex]?.[taskID]
+  return !(typeof sourceValue === 'number' && Number.isFinite(sourceValue))
+    && typeof chartValue === 'number'
+    && Number.isFinite(chartValue)
+}
 
 const emptyDescription = computed(() => maxPingRecordPreserveTime.value === 0
   ? 'Ping 历史记录已关闭'
@@ -802,6 +838,7 @@ const pingChartOption = computed(() => {
         const timeStr = formatTimeForTooltip(time, hours)
         let html = `<div style="font-weight:600;margin-bottom:6px;color:${chartThemeColors.value.textSecondary}">${timeStr}</div>`
         html += '<div style="display:flex;flex-direction:column;gap:4px">'
+        let hasInterpolatedValue = false
 
         // 按延迟值排序显示
         const sortedParams = [...p].sort((a, b) => (a.value ?? 0) - (b.value ?? 0))
@@ -812,10 +849,16 @@ const pingChartOption = computed(() => {
             const task = tasks.value.find(t => t.name === item.seriesName)
             const color = task ? colorMap.get(task.id) || chartColors[0] : chartColors[0]
             const colorDot = `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;flex-shrink:0"></span>`
-            html += `<div style="display:flex;align-items:center">${colorDot}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.seriesName}</span><span style="margin-left:auto;font-weight:600;margin-left:16px;font-variant-numeric:tabular-nums">${Math.round(item.value)} ms</span></div>`
+            const interpolated = task ? isInterpolatedPoint(task.id, item.dataIndex) : false
+            hasInterpolatedValue ||= interpolated
+            const valuePrefix = interpolated ? '≈' : ''
+            html += `<div style="display:flex;align-items:center">${colorDot}<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.seriesName}</span><span style="margin-left:auto;font-weight:600;margin-left:16px;font-variant-numeric:tabular-nums">${valuePrefix}${Math.round(item.value)} ms</span></div>`
           }
         }
         html += '</div>'
+        if (hasInterpolatedValue) {
+          html += `<div style="margin-top:6px;color:${chartThemeColors.value.textTertiary};font-size:11px">≈ 短时空洞估算值</div>`
+        }
         return html
       },
     },

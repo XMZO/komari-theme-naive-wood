@@ -1,7 +1,7 @@
 {
   "name": "komari-theme-naive",
   "type": "module",
-  "version": "2.0.35",
+  "version": "2.0.36",
   "packageManager": "pnpm@10.30.3",
   "author": {
     "name": "lyimoexiao",

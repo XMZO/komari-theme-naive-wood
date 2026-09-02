@@ -3,7 +3,7 @@ import { NButton } from 'naive-ui'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
-import { cleanupLegacyBackgroundProxy, fetchBackgroundImageBlob } from '@/utils/backgroundImageProxy'
+import { cleanupLegacyBackgroundProxy, prepareBackgroundImage } from '@/utils/backgroundImageProxy'
 
 const appStore = useAppStore()
 
@@ -12,9 +12,12 @@ const isLoaded = ref(false)
 const hasError = ref(false)
 const isSaving = ref(false)
 const imageDisplayUrl = ref('')
+const imageObjectUrl = ref('')
 const imageBlob = ref<Blob | null>(null)
-const imageBlobSourceUrl = ref('')
-const imageBlobReady = ref(false)
+const imageSourceUrl = ref('')
+const imageDownloadUrl = ref('')
+const isImagePreparing = ref(false)
+const imageDirectFallbackAttempted = ref(false)
 
 // 计算背景样式
 const backgroundStyle = computed(() => {
@@ -67,6 +70,14 @@ const showSaveButton = computed(() => {
   return appStore.showSaveBackgroundButton && showBackground.value && Boolean(currentUrl.value) && !hasError.value
 })
 
+const isSaveButtonLoading = computed(() => {
+  return isSaving.value || (backgroundType.value === 'image' && isImagePreparing.value)
+})
+
+const saveButtonTitle = computed(() => {
+  return isImagePreparing.value ? '正在准备当前背景' : '保存当前背景'
+})
+
 // 是否显示默认背景（未启用自定义背景、未配置 URL、或加载失败时）
 const showDefaultBackground = computed(() => {
   if (!showBackground.value) {
@@ -90,7 +101,7 @@ const showLoadingBackground = computed(() => {
 
 cleanupLegacyBackgroundProxy()
 
-// 图片加载处理。图片保存开启时先取成可读 Blob，显示和下载复用同一份字节。
+// 图片加载处理。优先取成可读 Blob，显示和下载复用同一份字节。
 let imageRequestId = 0
 let imageFallbackTimer: number | null = null
 
@@ -103,13 +114,16 @@ function clearImageFallbackTimer() {
 
 function resetImageState() {
   clearImageFallbackTimer()
-  if (imageDisplayUrl.value.startsWith('blob:')) {
-    URL.revokeObjectURL(imageDisplayUrl.value)
+  if (imageObjectUrl.value) {
+    URL.revokeObjectURL(imageObjectUrl.value)
   }
   imageDisplayUrl.value = ''
+  imageObjectUrl.value = ''
   imageBlob.value = null
-  imageBlobSourceUrl.value = ''
-  imageBlobReady.value = false
+  imageSourceUrl.value = ''
+  imageDownloadUrl.value = ''
+  isImagePreparing.value = false
+  imageDirectFallbackAttempted.value = false
 }
 
 async function loadImage(url: string) {
@@ -119,9 +133,12 @@ async function loadImage(url: string) {
   hasError.value = false
 
   if (!appStore.showSaveBackgroundButton) {
+    imageSourceUrl.value = url
     imageDisplayUrl.value = url
     return
   }
+
+  isImagePreparing.value = true
 
   imageFallbackTimer = window.setTimeout(() => {
     if (requestId !== imageRequestId || imageDisplayUrl.value) {
@@ -131,9 +148,9 @@ async function loadImage(url: string) {
     imageDisplayUrl.value = url
   }, 1800)
 
-  let result: Awaited<ReturnType<typeof fetchBackgroundImageBlob>>
+  let result: Awaited<ReturnType<typeof prepareBackgroundImage>>
   try {
-    result = await fetchBackgroundImageBlob(url)
+    result = await prepareBackgroundImage(url)
   }
   catch {
     if (requestId !== imageRequestId) {
@@ -143,8 +160,10 @@ async function loadImage(url: string) {
     if (!imageDisplayUrl.value) {
       imageDisplayUrl.value = url
     }
+    imageSourceUrl.value = url
     imageBlob.value = null
-    imageBlobSourceUrl.value = ''
+    imageDownloadUrl.value = ''
+    isImagePreparing.value = false
     return
   }
 
@@ -153,10 +172,20 @@ async function loadImage(url: string) {
   }
 
   clearImageFallbackTimer()
-  imageBlob.value = result.blob
-  imageBlobSourceUrl.value = result.sourceUrl
-  imageBlobReady.value = true
-  imageDisplayUrl.value = URL.createObjectURL(result.blob)
+  imageSourceUrl.value = result.sourceUrl
+  isImagePreparing.value = false
+
+  if (result.kind === 'blob') {
+    imageBlob.value = result.blob
+    imageObjectUrl.value = URL.createObjectURL(result.blob)
+    imageDownloadUrl.value = imageObjectUrl.value
+    imageDisplayUrl.value = imageObjectUrl.value
+    return
+  }
+
+  imageBlob.value = null
+  imageDisplayUrl.value = result.displayUrl
+  imageDownloadUrl.value = ''
 }
 
 function handleImageLoaded() {
@@ -165,6 +194,19 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
+  if (
+    imageSourceUrl.value
+    && imageDisplayUrl.value !== imageSourceUrl.value
+    && !imageDirectFallbackAttempted.value
+  ) {
+    imageDirectFallbackAttempted.value = true
+    imageDownloadUrl.value = ''
+    imageDisplayUrl.value = imageSourceUrl.value
+    isLoaded.value = false
+    hasError.value = false
+    return
+  }
+
   isLoaded.value = false
   hasError.value = true
 }
@@ -263,13 +305,23 @@ async function saveCurrentBackground() {
 
   try {
     if (backgroundType.value === 'image') {
-      if (!imageBlob.value || !imageDisplayUrl.value.startsWith('blob:') || !imageBlobReady.value) {
-        window.$message?.warning('当前背景还没准备好，请稍等一下再保存')
+      if (imageDownloadUrl.value) {
+        triggerDownload(
+          imageDownloadUrl.value,
+          getBackgroundFileName(imageSourceUrl.value || currentUrl.value, imageBlob.value),
+        )
+        window.$message?.success('已开始保存当前背景')
         return
       }
 
-      triggerDownload(imageDisplayUrl.value, getBackgroundFileName(imageBlobSourceUrl.value || currentUrl.value, imageBlob.value))
-      window.$message?.success('已开始保存当前背景')
+      if (isImagePreparing.value) {
+        window.$message?.warning('当前背景正在准备，请稍等一下再保存')
+        return
+      }
+
+      const fallbackUrl = imageSourceUrl.value || imageDisplayUrl.value || currentUrl.value
+      triggerDownload(fallbackUrl, getBackgroundFileName(fallbackUrl), true)
+      window.$message?.info('浏览器无法直接读取当前背景，已为你打开原图')
       return
     }
 
@@ -388,10 +440,10 @@ onUnmounted(() => {
       v-if="showSaveButton"
       circle
       class="background-save-button"
-      :disabled="isSaving"
-      :loading="isSaving"
+      :disabled="isSaveButtonLoading"
+      :loading="isSaveButtonLoading"
       size="small"
-      title="保存当前背景"
+      :title="saveButtonTitle"
       aria-label="保存当前背景"
       @click="saveCurrentBackground"
     >
