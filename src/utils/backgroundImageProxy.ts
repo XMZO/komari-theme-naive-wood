@@ -3,6 +3,7 @@ const FALLBACK_IMAGE_PROXY_ORIGIN = 'https://proxy.cors.sh'
 const LEGACY_SERVICE_WORKER_NAME = '/komari-background-sw.js'
 const LEGACY_CACHE_PREFIX = 'komari-background-cache-'
 const FETCH_TIMEOUT_MS = 8000
+const ALCY_RANDOM_PATH = /^\/(?:ycy|moez|ai|ysz|pivix|pc|moe|fj|bd|ys|acg|mp|moemp|ysmp|aimp|tx|lai|xhl)\/?$/
 
 export type PreparedBackgroundImage
   = | {
@@ -29,6 +30,7 @@ export async function prepareBackgroundImage(
 ): Promise<PreparedBackgroundImage> {
   const requestUrl = createBackgroundImageRequestUrl(sourceUrl)
   let resolvedUrl = requestUrl
+  let resolutionFailed = false
   // Onani returns a preview with a stable original URL. Never send this local endpoint to external proxies.
   if (isOnaniBackgroundUrl(requestUrl)) {
     const selectionUrl = new URL(requestUrl)
@@ -61,9 +63,11 @@ export async function prepareBackgroundImage(
     }
   }
   catch {
-    // If a resolver is unavailable, continue with the original image URL.
+    resolutionFailed = true
   }
-  const preferReadableProxy = shouldPreferReadableProxy(resolvedUrl)
+  // A failed CORS lookup cannot give us a stable original URL. Fetch the random
+  // image once through the readable proxy and display/save that same Blob.
+  const preferReadableProxy = resolutionFailed || shouldPreferReadableProxy(resolvedUrl)
 
   if (preferReadableProxy) {
     const proxyResult = await fetchReadableProxyBlob(resolvedUrl).catch(() => null)
@@ -193,9 +197,18 @@ function getReadableProxyUrls(sourceUrl: string) {
   const normalizedSourceUrl = targetUrl.toString()
 
   const proxyUrls: string[] = []
-  if (!targetUrl.search) {
+  // Never forward a same-origin/private application URL to a public image service.
+  if (isSameOrigin(normalizedSourceUrl)) {
+    return []
+  }
+  {
     const wordpressUrl = new URL(`${WORDPRESS_IMAGE_PROXY_ORIGIN}/${targetUrl.host}${targetUrl.pathname}`)
     wordpressUrl.searchParams.set('ssl', '1')
+    // Photon forwards the source query via q. Dropping it breaks signed URLs
+    // and pins a random endpoint to a single cached image.
+    if (targetUrl.search) {
+      wordpressUrl.searchParams.set('q', targetUrl.search.slice(1))
+    }
     proxyUrls.push(wordpressUrl.toString())
   }
 
@@ -324,7 +337,8 @@ function shouldPreferReadableProxy(sourceUrl: string) {
 
 function shouldUseClientJsonResolver(sourceUrl: string) {
   try {
-    return new URL(sourceUrl, window.location.href).hostname === 't.alcy.cc'
+    const url = new URL(sourceUrl, window.location.href)
+    return url.hostname === 't.alcy.cc' && ALCY_RANDOM_PATH.test(url.pathname)
   }
   catch {
     return false
