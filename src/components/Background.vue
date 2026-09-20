@@ -5,6 +5,7 @@ import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
 import {
   cleanupLegacyBackgroundProxy,
+  isOnaniBackgroundUrl,
   prepareBackgroundImage,
 } from '@/utils/backgroundImageProxy'
 
@@ -19,6 +20,7 @@ const imageObjectUrl = ref('')
 const imageBlob = ref<Blob | null>(null)
 const imageSourceUrl = ref('')
 const imageDownloadUrl = ref('')
+const imageOriginalDownloadUrl = ref('')
 const isImagePreparing = ref(false)
 const imageDirectFallbackAttempted = ref(false)
 
@@ -116,6 +118,7 @@ function resetImageState() {
   imageBlob.value = null
   imageSourceUrl.value = ''
   imageDownloadUrl.value = ''
+  imageOriginalDownloadUrl.value = ''
   isImagePreparing.value = false
   imageDirectFallbackAttempted.value = false
 }
@@ -152,6 +155,12 @@ async function loadImage(url: string) {
     if (requestId !== imageRequestId) {
       return
     }
+    if (isOnaniBackgroundUrl(url)) {
+      isImagePreparing.value = false
+      hasError.value = true
+      window.$message?.error('背景代理暂不可用，请确认 Onani 背景代理已启用，或稍后刷新重试')
+      return
+    }
     if (!imageDisplayUrl.value) {
       imageDisplayUrl.value = url
     }
@@ -173,6 +182,7 @@ async function loadImage(url: string) {
     imageBlob.value = result.blob
     imageObjectUrl.value = URL.createObjectURL(result.blob)
     imageDownloadUrl.value = imageObjectUrl.value
+    imageOriginalDownloadUrl.value = result.originalDownloadUrl ?? ''
     // 真实地址已经成功显示时保持原 src；尚未显示或加载失败时再切到同一张图的 Blob。
     if (!imageDisplayUrl.value || !isLoaded.value || hasError.value) {
       imageDisplayUrl.value = imageObjectUrl.value
@@ -194,6 +204,12 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
+  if (isOnaniBackgroundUrl(imageSourceUrl.value)) {
+    imageOriginalDownloadUrl.value = ''
+    isLoaded.value = false
+    hasError.value = true
+    return
+  }
   if (
     imageObjectUrl.value
     && imageDisplayUrl.value !== imageObjectUrl.value
@@ -297,14 +313,25 @@ function triggerDownload(url: string, filename: string, openInNewTab = false) {
   link.remove()
 }
 
-async function fetchCurrentBackgroundBlob(sourceUrl: string) {
-  const response = await fetch(sourceUrl, { credentials: 'same-origin' })
-  if (!response.ok) {
-    throw new Error(`Failed to save background: ${response.status}`)
+async function fetchCurrentBackgroundBlob(sourceUrl: string, requireImage = false) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 60000)
+  try {
+    const response = await fetch(sourceUrl, { credentials: 'same-origin', signal: controller.signal })
+    if (response.status === 410) {
+      throw new Error('当前背景原图已过期，请刷新页面重新加载背景')
+    }
+    if (!response.ok) {
+      throw new Error(`Failed to save background: ${response.status}`)
+    }
+    const blob = await response.blob()
+    if (blob.size === 0 || (requireImage && !/^image\//i.test(blob.type))) {
+      throw new Error('Background download did not return media')
+    }
+    return { blob, sourceUrl: response.url || sourceUrl }
   }
-  return {
-    blob: await response.blob(),
-    sourceUrl: response.url || sourceUrl,
+  finally {
+    window.clearTimeout(timeout)
   }
 }
 
@@ -317,6 +344,14 @@ async function saveCurrentBackground() {
 
   try {
     if (backgroundType.value === 'image') {
+      if (imageOriginalDownloadUrl.value) {
+        const result = await fetchCurrentBackgroundBlob(imageOriginalDownloadUrl.value, true)
+        const objectUrl = URL.createObjectURL(result.blob)
+        triggerDownload(objectUrl, getBackgroundFileName(result.sourceUrl, result.blob))
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
+        window.$message?.success('已开始保存当前背景原图')
+        return
+      }
       if (imageDownloadUrl.value) {
         triggerDownload(
           imageDownloadUrl.value,
@@ -331,9 +366,7 @@ async function saveCurrentBackground() {
         return
       }
 
-      const fallbackUrl = imageSourceUrl.value || imageDisplayUrl.value || currentUrl.value
-      triggerDownload(fallbackUrl, getBackgroundFileName(fallbackUrl), true)
-      window.$message?.info('浏览器无法直接读取当前背景，已为你打开原图')
+      window.$message?.warning('当前图片源不允许读取，无法保存当前这张背景；可配置 Onani 同域背景代理')
       return
     }
 
@@ -344,20 +377,25 @@ async function saveCurrentBackground() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
     window.$message?.success('已开始保存当前背景')
   }
-  catch {
-    window.$message?.error('当前背景源无法跨域读取，保存失败')
+  catch (error) {
+    window.$message?.error(error instanceof Error && error.message === '当前背景原图已过期，请刷新页面重新加载背景'
+      ? error.message
+      : '当前背景下载失败，请稍后重试')
   }
   finally {
     isSaving.value = false
   }
 }
 
-// 监听 URL 变化
-watch(currentUrl, (url) => {
-  if (url && backgroundType.value === 'image') {
+// Batch settings changes into one load; separate watchers used to fetch the same random background twice.
+watch([currentUrl, backgroundType, () => appStore.showSaveBackgroundButton], ([url, type], [previousUrl, previousType]) => {
+  if (url && type === 'image') {
     void loadImage(url)
   }
-  else if (url && backgroundType.value === 'video') {
+  else if (url && type === 'video') {
+    if (url === previousUrl && type === previousType) {
+      return
+    }
     imageRequestId += 1
     resetImageState()
     // 视频通过事件处理
@@ -372,23 +410,6 @@ watch(currentUrl, (url) => {
     hasError.value = false
   }
 }, { immediate: true })
-
-watch(() => appStore.showSaveBackgroundButton, () => {
-  if (currentUrl.value && backgroundType.value === 'image') {
-    void loadImage(currentUrl.value)
-  }
-})
-
-// 监听背景类型变化
-watch(backgroundType, (type) => {
-  if (type === 'image' && currentUrl.value) {
-    void loadImage(currentUrl.value)
-  }
-  else {
-    imageRequestId += 1
-    resetImageState()
-  }
-})
 
 // 组件卸载时清理
 onUnmounted(() => {

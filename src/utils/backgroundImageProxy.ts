@@ -9,6 +9,7 @@ export type PreparedBackgroundImage
     kind: 'blob'
     blob: Blob
     sourceUrl: string
+    originalDownloadUrl?: string
   }
   | {
     kind: 'direct'
@@ -22,6 +23,15 @@ export async function prepareBackgroundImage(
 ): Promise<PreparedBackgroundImage> {
   const requestUrl = createBackgroundImageRequestUrl(sourceUrl)
   let resolvedUrl = requestUrl
+  // Onani returns a preview with a stable original URL. Never send this local endpoint to external proxies.
+  if (isOnaniBackgroundUrl(requestUrl)) {
+    const result = await fetchImageBlob(requestUrl, requestUrl, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      mode: 'same-origin',
+    })
+    return { kind: 'blob', ...result }
+  }
   try {
     resolvedUrl = await resolveClientSelectedImageUrl(requestUrl)
     if (resolvedUrl !== requestUrl) {
@@ -172,7 +182,7 @@ function getReadableProxyUrls(sourceUrl: string) {
 }
 
 async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: RequestInit) {
-  const response = await fetchWithTimeout(fetchUrl, init)
+  const response = await fetchWithTimeout(fetchUrl, init, isOnaniBackgroundUrl(fetchUrl) ? 45000 : FETCH_TIMEOUT_MS)
   if (!response.ok) {
     throw new Error(`Failed to fetch background image: ${response.status}`)
   }
@@ -187,15 +197,43 @@ async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: Request
     throw new Error('Background response is empty')
   }
 
-  return { blob, sourceUrl }
+  let originalDownloadUrl: string | undefined
+  if (isOnaniBackgroundUrl(fetchUrl) && response.headers.get('x-onani-preview') === 'webp') {
+    const original = response.headers.get('x-onani-original') ?? ''
+    if (!/^\/api\/plugins\/onani\/background\/[a-f0-9]{64}\/original$/.test(original)) {
+      throw new Error('Onani preview is missing its original image URL')
+    }
+    originalDownloadUrl = new URL(original, window.location.origin).toString()
+  }
+  return { blob, sourceUrl, originalDownloadUrl }
 }
 
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit) {
+export function isOnaniBackgroundUrl(value: string) {
+  try {
+    const url = new URL(value, window.location.href)
+    return url.origin === window.location.origin && url.pathname === '/api/plugins/onani/background'
+  }
+  catch {
+    return false
+  }
+}
+
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = FETCH_TIMEOUT_MS) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
 
   try {
-    return await fetch(input, { ...init, signal: controller.signal })
+    const response = await fetch(input, { ...init, signal: controller.signal })
+    // Consume while the abort deadline is active; slow bodies must not bypass it.
+    const body = await response.blob()
+    return {
+      ok: response.ok,
+      status: response.status,
+      url: response.url,
+      headers: response.headers,
+      blob: async () => body,
+      text: () => body.text(),
+    }
   }
   finally {
     window.clearTimeout(timeout)
