@@ -21,6 +21,7 @@ const imageBlob = ref<Blob | null>(null)
 const imageSourceUrl = ref('')
 const imageDownloadUrl = ref('')
 const imageOriginalDownloadUrl = ref('')
+const imageNativeDownload = ref(false)
 const isImagePreparing = ref(false)
 const imageDirectFallbackAttempted = ref(false)
 
@@ -119,6 +120,7 @@ function resetImageState() {
   imageSourceUrl.value = ''
   imageDownloadUrl.value = ''
   imageOriginalDownloadUrl.value = ''
+  imageNativeDownload.value = false
   isImagePreparing.value = false
   imageDirectFallbackAttempted.value = false
 }
@@ -129,7 +131,7 @@ async function loadImage(url: string) {
   isLoaded.value = false
   hasError.value = false
 
-  if (!appStore.showSaveBackgroundButton) {
+  if (!appStore.showSaveBackgroundButton && !isOnaniBackgroundUrl(url)) {
     imageSourceUrl.value = url
     imageDisplayUrl.value = url
     return
@@ -177,6 +179,13 @@ async function loadImage(url: string) {
 
   imageSourceUrl.value = result.sourceUrl
   isImagePreparing.value = false
+
+  if (result.kind === 'proxied') {
+    imageDisplayUrl.value = result.displayUrl
+    imageOriginalDownloadUrl.value = result.originalDownloadUrl
+    imageNativeDownload.value = true
+    return
+  }
 
   if (result.kind === 'blob') {
     imageBlob.value = result.blob
@@ -344,6 +353,17 @@ async function saveCurrentBackground() {
 
   try {
     if (backgroundType.value === 'image') {
+      if (imageOriginalDownloadUrl.value && imageNativeDownload.value) {
+        // Check availability without buffering the file; the browser owns transfer/progress.
+        const response = await fetch(imageOriginalDownloadUrl.value, { method: 'HEAD', credentials: 'same-origin', signal: AbortSignal.timeout(8000) })
+        if (response.status === 410)
+          throw new Error('当前背景原图已过期，请刷新页面重新加载背景')
+        if (!response.ok)
+          throw new Error(`Background download unavailable: ${response.status}`)
+        triggerDownload(imageOriginalDownloadUrl.value, '')
+        window.$message?.success('已交给浏览器下载原图，可在下载列表查看进度')
+        return
+      }
       if (imageOriginalDownloadUrl.value) {
         const result = await fetchCurrentBackgroundBlob(imageOriginalDownloadUrl.value, true)
         const objectUrl = URL.createObjectURL(result.blob)
@@ -445,6 +465,8 @@ onUnmounted(() => {
             alt=""
             class="background-image"
             draggable="false"
+            fetchpriority="high"
+            decoding="async"
             :src="imageDisplayUrl"
             @error="handleImageError"
             @load="handleImageLoaded"

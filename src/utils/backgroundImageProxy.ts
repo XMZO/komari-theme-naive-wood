@@ -6,6 +6,12 @@ const FETCH_TIMEOUT_MS = 8000
 
 export type PreparedBackgroundImage
   = | {
+    kind: 'proxied'
+    displayUrl: string
+    sourceUrl: string
+    originalDownloadUrl: string
+  }
+  | {
     kind: 'blob'
     blob: Blob
     sourceUrl: string
@@ -25,6 +31,22 @@ export async function prepareBackgroundImage(
   let resolvedUrl = requestUrl
   // Onani returns a preview with a stable original URL. Never send this local endpoint to external proxies.
   if (isOnaniBackgroundUrl(requestUrl)) {
+    const selectionUrl = new URL(requestUrl)
+    selectionUrl.pathname += '/selection'
+    const response = await fetchWithTimeout(selectionUrl, { cache: 'no-store', credentials: 'same-origin', mode: 'same-origin' }, 45000)
+    if (response.ok) {
+      const selection = JSON.parse(await response.text()) as { preview?: unknown, original?: unknown }
+      const match = typeof selection.preview === 'string'
+        ? /^\/api\/plugins\/onani\/background\/([a-f0-9]{64})\/preview$/.exec(selection.preview)
+        : null
+      if (!match || selection.original !== `/api/plugins/onani/background/${match[1]}/original`) {
+        throw new Error('Invalid Onani image selection')
+      }
+      return { kind: 'proxied', sourceUrl: requestUrl, displayUrl: new URL(selection.preview as string, window.location.origin).toString(), originalDownloadUrl: new URL(selection.original as string, window.location.origin).toString() }
+    }
+    // Older Onani versions expose only the binary endpoint.
+    if (response.status !== 404 && response.status !== 405)
+      throw new Error(`Onani image selection failed: ${response.status}`)
     const result = await fetchImageBlob(requestUrl, requestUrl, {
       cache: 'no-store',
       credentials: 'same-origin',
