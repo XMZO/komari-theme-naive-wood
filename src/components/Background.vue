@@ -5,7 +5,6 @@ import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
 import {
   cleanupLegacyBackgroundProxy,
-  isOnaniBackgroundUrl,
   prepareBackgroundImage,
 } from '@/utils/backgroundImageProxy'
 
@@ -20,8 +19,6 @@ const imageObjectUrl = ref('')
 const imageBlob = ref<Blob | null>(null)
 const imageSourceUrl = ref('')
 const imageDownloadUrl = ref('')
-const imageOriginalDownloadUrl = ref('')
-const imageNativeDownload = ref(false)
 const isImagePreparing = ref(false)
 const imageDirectFallbackAttempted = ref(false)
 
@@ -119,8 +116,6 @@ function resetImageState() {
   imageBlob.value = null
   imageSourceUrl.value = ''
   imageDownloadUrl.value = ''
-  imageOriginalDownloadUrl.value = ''
-  imageNativeDownload.value = false
   isImagePreparing.value = false
   imageDirectFallbackAttempted.value = false
 }
@@ -131,7 +126,7 @@ async function loadImage(url: string) {
   isLoaded.value = false
   hasError.value = false
 
-  if (!appStore.showSaveBackgroundButton && !isOnaniBackgroundUrl(url)) {
+  if (!appStore.showSaveBackgroundButton) {
     imageSourceUrl.value = url
     imageDisplayUrl.value = url
     return
@@ -157,12 +152,6 @@ async function loadImage(url: string) {
     if (requestId !== imageRequestId) {
       return
     }
-    if (isOnaniBackgroundUrl(url)) {
-      isImagePreparing.value = false
-      hasError.value = true
-      window.$message?.error('背景代理暂不可用，请确认 Onani 背景代理已启用，或稍后刷新重试')
-      return
-    }
     if (!imageDisplayUrl.value) {
       imageDisplayUrl.value = url
     }
@@ -180,18 +169,10 @@ async function loadImage(url: string) {
   imageSourceUrl.value = result.sourceUrl
   isImagePreparing.value = false
 
-  if (result.kind === 'proxied') {
-    imageDisplayUrl.value = result.displayUrl
-    imageOriginalDownloadUrl.value = result.originalDownloadUrl
-    imageNativeDownload.value = true
-    return
-  }
-
   if (result.kind === 'blob') {
     imageBlob.value = result.blob
     imageObjectUrl.value = URL.createObjectURL(result.blob)
     imageDownloadUrl.value = imageObjectUrl.value
-    imageOriginalDownloadUrl.value = result.originalDownloadUrl ?? ''
     // 真实地址已经成功显示时保持原 src；尚未显示或加载失败时再切到同一张图的 Blob。
     if (!imageDisplayUrl.value || !isLoaded.value || hasError.value) {
       imageDisplayUrl.value = imageObjectUrl.value
@@ -213,12 +194,6 @@ function handleImageLoaded() {
 }
 
 function handleImageError() {
-  if (isOnaniBackgroundUrl(imageSourceUrl.value)) {
-    imageOriginalDownloadUrl.value = ''
-    isLoaded.value = false
-    hasError.value = true
-    return
-  }
   if (
     imageObjectUrl.value
     && imageDisplayUrl.value !== imageObjectUrl.value
@@ -322,19 +297,16 @@ function triggerDownload(url: string, filename: string, openInNewTab = false) {
   link.remove()
 }
 
-async function fetchCurrentBackgroundBlob(sourceUrl: string, requireImage = false) {
+async function fetchCurrentBackgroundBlob(sourceUrl: string) {
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), 60000)
   try {
     const response = await fetch(sourceUrl, { credentials: 'same-origin', signal: controller.signal })
-    if (response.status === 410) {
-      throw new Error('当前背景原图已过期，请刷新页面重新加载背景')
-    }
     if (!response.ok) {
       throw new Error(`Failed to save background: ${response.status}`)
     }
     const blob = await response.blob()
-    if (blob.size === 0 || (requireImage && !/^image\//i.test(blob.type))) {
+    if (blob.size === 0) {
       throw new Error('Background download did not return media')
     }
     return { blob, sourceUrl: response.url || sourceUrl }
@@ -353,25 +325,6 @@ async function saveCurrentBackground() {
 
   try {
     if (backgroundType.value === 'image') {
-      if (imageOriginalDownloadUrl.value && imageNativeDownload.value) {
-        // Check availability without buffering the file; the browser owns transfer/progress.
-        const response = await fetch(imageOriginalDownloadUrl.value, { method: 'HEAD', credentials: 'same-origin', signal: AbortSignal.timeout(8000) })
-        if (response.status === 410)
-          throw new Error('当前背景原图已过期，请刷新页面重新加载背景')
-        if (!response.ok)
-          throw new Error(`Background download unavailable: ${response.status}`)
-        triggerDownload(imageOriginalDownloadUrl.value, '')
-        window.$message?.success('已交给浏览器下载原图，可在下载列表查看进度')
-        return
-      }
-      if (imageOriginalDownloadUrl.value) {
-        const result = await fetchCurrentBackgroundBlob(imageOriginalDownloadUrl.value, true)
-        const objectUrl = URL.createObjectURL(result.blob)
-        triggerDownload(objectUrl, getBackgroundFileName(result.sourceUrl, result.blob))
-        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60000)
-        window.$message?.success('已开始保存当前背景原图')
-        return
-      }
       if (imageDownloadUrl.value) {
         triggerDownload(
           imageDownloadUrl.value,
@@ -386,7 +339,7 @@ async function saveCurrentBackground() {
         return
       }
 
-      window.$message?.warning('当前图片源不允许读取，无法保存当前这张背景；可配置 Onani 同域背景代理')
+      window.$message?.warning('当前图片源不允许读取，无法保存当前这张背景')
       return
     }
 
@@ -397,10 +350,8 @@ async function saveCurrentBackground() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000)
     window.$message?.success('已开始保存当前背景')
   }
-  catch (error) {
-    window.$message?.error(error instanceof Error && error.message === '当前背景原图已过期，请刷新页面重新加载背景'
-      ? error.message
-      : '当前背景下载失败，请稍后重试')
+  catch {
+    window.$message?.error('当前背景下载失败，请稍后重试')
   }
   finally {
     isSaving.value = false

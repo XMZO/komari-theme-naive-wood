@@ -2,8 +2,8 @@
   "name": "Komari Naive",
   "short": "Naive",
   "description": "A naive-ui theme for Komari",
-  "version": "2.0.39",
-  "author": "lyimoexiao",
+  "version": "2.0.40",
+  "author": "lyimoexiao, XMZO",
   "url": "https://github.com/XMZO/komari-theme-naive-wood",
   "preview": "preview.png",
   "configuration": {

@@ -1,13 +1,19 @@
 {
   "name": "komari-theme-naive",
   "type": "module",
-  "version": "2.0.39",
+  "version": "2.0.40",
   "packageManager": "pnpm@10.30.3",
   "author": {
     "name": "lyimoexiao",
     "email": "lyimoexiao@outlook.com",
     "url": "https://github.com/lyimoexiao"
   },
+  "contributors": [
+    {
+      "name": "XMZO",
+      "url": "https://github.com/XMZO"
+    }
+  ],
   "license": "MIT",
   "engines": {
     "node": "^20.19.0 || >=22.12.0",

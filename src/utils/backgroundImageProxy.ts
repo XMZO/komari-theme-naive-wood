@@ -4,19 +4,18 @@ const LEGACY_SERVICE_WORKER_NAME = '/komari-background-sw.js'
 const LEGACY_CACHE_PREFIX = 'komari-background-cache-'
 const FETCH_TIMEOUT_MS = 8000
 const ALCY_RANDOM_PATH = /^\/(?:ycy|moez|ai|ysz|pivix|pc|moe|fj|bd|ys|acg|mp|moemp|ysmp|aimp|tx|lai|xhl)\/?$/
+// alcy 自适应接口按请求方 User-Agent 选横/竖图，而图片代理用的是自己的 UA（总拿到横图）。
+const ALCY_ADAPTIVE_PATHS: Record<string, { landscape: string, portrait: string }> = {
+  ycy: { landscape: 'pc', portrait: 'mp' },
+  moez: { landscape: 'moe', portrait: 'moemp' },
+  ysz: { landscape: 'ys', portrait: 'ysmp' },
+}
 
 export type PreparedBackgroundImage
   = | {
-    kind: 'proxied'
-    displayUrl: string
-    sourceUrl: string
-    originalDownloadUrl: string
-  }
-  | {
     kind: 'blob'
     blob: Blob
     sourceUrl: string
-    originalDownloadUrl?: string
   }
   | {
     kind: 'direct'
@@ -31,31 +30,6 @@ export async function prepareBackgroundImage(
   const requestUrl = createBackgroundImageRequestUrl(sourceUrl)
   let resolvedUrl = requestUrl
   let resolutionFailed = false
-  // Onani returns a preview with a stable original URL. Never send this local endpoint to external proxies.
-  if (isOnaniBackgroundUrl(requestUrl)) {
-    const selectionUrl = new URL(requestUrl)
-    selectionUrl.pathname += '/selection'
-    const response = await fetchWithTimeout(selectionUrl, { cache: 'no-store', credentials: 'same-origin', mode: 'same-origin' }, 45000)
-    if (response.ok) {
-      const selection = JSON.parse(await response.text()) as { preview?: unknown, original?: unknown }
-      const match = typeof selection.preview === 'string'
-        ? /^\/api\/plugins\/onani\/background\/([a-f0-9]{64})\/preview$/.exec(selection.preview)
-        : null
-      if (!match || selection.original !== `/api/plugins/onani/background/${match[1]}/original`) {
-        throw new Error('Invalid Onani image selection')
-      }
-      return { kind: 'proxied', sourceUrl: requestUrl, displayUrl: new URL(selection.preview as string, window.location.origin).toString(), originalDownloadUrl: new URL(selection.original as string, window.location.origin).toString() }
-    }
-    // Older Onani versions expose only the binary endpoint.
-    if (response.status !== 404 && response.status !== 405)
-      throw new Error(`Onani image selection failed: ${response.status}`)
-    const result = await fetchImageBlob(requestUrl, requestUrl, {
-      cache: 'no-store',
-      credentials: 'same-origin',
-      mode: 'same-origin',
-    })
-    return { kind: 'blob', ...result }
-  }
   try {
     resolvedUrl = await resolveClientSelectedImageUrl(requestUrl)
     if (resolvedUrl !== requestUrl) {
@@ -114,9 +88,21 @@ function createBackgroundImageRequestUrl(sourceUrl: string) {
     (targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:')
     && shouldUseClientJsonResolver(targetUrl.toString())
   ) {
+    applyAlcyOrientation(targetUrl)
     targetUrl.searchParams.set('__komari_bg', createRequestKey())
   }
   return targetUrl.toString()
+}
+
+// 在浏览器侧按视口方向换成固定的横/竖接口，经代理取到的图才与屏幕方向一致。
+function applyAlcyOrientation(url: URL) {
+  const name = url.pathname.replace(/^\/|\/$/g, '')
+  const variants = ALCY_ADAPTIVE_PATHS[name]
+  if (!variants) {
+    return
+  }
+  const portrait = window.matchMedia('(orientation: portrait)').matches
+  url.pathname = `/${portrait ? variants.portrait : variants.landscape}${url.pathname.endsWith('/') ? '/' : ''}`
 }
 
 async function resolveClientSelectedImageUrl(sourceUrl: string) {
@@ -217,7 +203,7 @@ function getReadableProxyUrls(sourceUrl: string) {
 }
 
 async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: RequestInit) {
-  const response = await fetchWithTimeout(fetchUrl, init, isOnaniBackgroundUrl(fetchUrl) ? 45000 : FETCH_TIMEOUT_MS)
+  const response = await fetchWithTimeout(fetchUrl, init)
   if (!response.ok) {
     throw new Error(`Failed to fetch background image: ${response.status}`)
   }
@@ -232,30 +218,12 @@ async function fetchImageBlob(fetchUrl: string, sourceUrl: string, init: Request
     throw new Error('Background response is empty')
   }
 
-  let originalDownloadUrl: string | undefined
-  if (isOnaniBackgroundUrl(fetchUrl) && response.headers.get('x-onani-preview') === 'webp') {
-    const original = response.headers.get('x-onani-original') ?? ''
-    if (!/^\/api\/plugins\/onani\/background\/[a-f0-9]{64}\/original$/.test(original)) {
-      throw new Error('Onani preview is missing its original image URL')
-    }
-    originalDownloadUrl = new URL(original, window.location.origin).toString()
-  }
-  return { blob, sourceUrl, originalDownloadUrl }
+  return { blob, sourceUrl }
 }
 
-export function isOnaniBackgroundUrl(value: string) {
-  try {
-    const url = new URL(value, window.location.href)
-    return url.origin === window.location.origin && url.pathname === '/api/plugins/onani/background'
-  }
-  catch {
-    return false
-  }
-}
-
-async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit, timeoutMs = FETCH_TIMEOUT_MS) {
+async function fetchWithTimeout(input: RequestInfo | URL, init: RequestInit) {
   const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+  const timeout = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
 
   try {
     const response = await fetch(input, { ...init, signal: controller.signal })
