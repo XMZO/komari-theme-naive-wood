@@ -85,7 +85,8 @@ CI does not run tests, because there is no test suite.
 
 - Start at `package.json` for root commands
 - Check `vite.config.ts` for build behavior, global constants, and zip packaging
-- Check `komari-theme.json` for theme metadata and managed configuration schema
+- Check `komari-theme.json` for theme metadata; its `configuration` is `raw` and only loads the settings page `settings.html`
+- Check `src/settings/schema.ts` for every theme setting, its default and its group; the front end merges these defaults because Komari no longer injects them
 - Check `src/` for app behavior
 - Check `public/images/` when code references image filenames directly
 - Check `.github/workflows/build-ci.yml` for CI expectations

@@ -1,0 +1,77 @@
+:root {
+  --s-primary: #18a058;
+  --s-primary-soft: color-mix(in srgb, var(--s-primary) 11%, transparent);
+  --s-bg: #f4f5f7;
+  --s-surface: #fff;
+  --s-subtle: #f5f6f8;
+  --s-hover: rgb(15 23 42 / 2%);
+  --s-border: rgb(15 23 42 / 8%);
+  --s-border-strong: rgb(15 23 42 / 15%);
+  --s-text-1: #1f2329;
+  --s-text-2: #4b5563;
+  --s-text-3: #8a919c;
+  --s-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+  --s-warning: #c27c0e;
+  --s-warning-soft: rgb(240 160 32 / 10%);
+  --s-device-frame: #23262d;
+
+  color-scheme: light;
+}
+
+html.dark {
+  --s-bg: #101014;
+  --s-surface: #18181c;
+  --s-subtle: #1f1f25;
+  --s-hover: rgb(255 255 255 / 2.5%);
+  --s-border: rgb(255 255 255 / 8%);
+  --s-border-strong: rgb(255 255 255 / 15%);
+  --s-text-1: #e9e9ee;
+  --s-text-2: #b6b6c0;
+  --s-text-3: #82828d;
+  --s-shadow: none;
+  --s-warning: #f2c97d;
+  --s-warning-soft: rgb(242 201 125 / 10%);
+  --s-device-frame: #34343c;
+
+  color-scheme: dark;
+}
+
+html,
+body,
+#settings-app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--s-bg);
+  color: var(--s-text-1);
+  font-family:
+    'MiSans VF',
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 10px;
+  background: var(--s-border-strong);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

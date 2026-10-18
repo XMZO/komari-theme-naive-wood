@@ -2,6 +2,15 @@ import presetWind4 from '@unocss/preset-wind4'
 import { defineConfig, presetIcons, transformerDirectives, transformerVariantGroup } from 'unocss'
 
 export default defineConfig({
+  content: {
+    pipeline: {
+      // 保留默认扫描范围；设置页的分组图标类名写在 src/settings 下的 .ts 中，也需要提取。
+      include: [
+        /\.(vue|svelte|[jt]sx|mdx?|astro|elm|php|phtml|html)($|\?)/,
+        /src[\\/]settings[\\/][^?]*\.ts($|\?)/,
+      ],
+    },
+  },
   presets: [
     presetWind4(),
     presetIcons({

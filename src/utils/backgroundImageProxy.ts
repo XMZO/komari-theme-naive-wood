@@ -18,6 +18,19 @@ const ADAPTIVE_BACKGROUND_ENDPOINTS: Record<string, Record<string, { landscape: 
   },
 }
 
+// 背景地址可填多个，用空格、换行或中文逗号分隔；英文逗号仅在后面紧跟新地址时视为分隔，
+// 以免拆开 URL 自带的逗号参数。
+export function parseBackgroundUrls(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return []
+  }
+  const urls = value
+    .split(/[\s，]+|,(?=\s*(?:https?:)?\/)/)
+    .map(url => url.trim())
+    .filter(Boolean)
+  return [...new Set(urls)]
+}
+
 export type PreparedBackgroundImage
   = | {
     kind: 'blob'
@@ -101,20 +114,31 @@ function createBackgroundImageRequestUrl(sourceUrl: string) {
 }
 
 /** 把已知的自适应随机图接口按当前视口方向换成固定的横图或竖图接口；其他地址原样返回。 */
-export function applyAdaptiveOrientation(sourceUrl: string) {
+function findAdaptiveEndpoint(sourceUrl: string) {
   let url: URL
   try {
     url = new URL(sourceUrl, window.location.href)
   }
   catch {
-    return sourceUrl
+    return null
   }
   const trailingSlash = url.pathname.length > 1 && url.pathname.endsWith('/')
   const path = trailingSlash ? url.pathname.slice(0, -1) : url.pathname
   const variants = ADAPTIVE_BACKGROUND_ENDPOINTS[url.hostname]?.[path]
-  if (!variants) {
+  return variants ? { url, trailingSlash, variants } : null
+}
+
+/** 是否为会按屏幕方向自动选择横图或竖图的随机图接口 */
+export function isAdaptiveBackgroundUrl(sourceUrl: string) {
+  return findAdaptiveEndpoint(sourceUrl) !== null
+}
+
+export function applyAdaptiveOrientation(sourceUrl: string) {
+  const endpoint = findAdaptiveEndpoint(sourceUrl)
+  if (!endpoint) {
     return sourceUrl
   }
+  const { url, trailingSlash, variants } = endpoint
   const portrait = window.matchMedia('(orientation: portrait)').matches
   url.pathname = `${portrait ? variants.portrait : variants.landscape}${trailingSlash ? '/' : ''}`
   if (variants.dropQuery) {

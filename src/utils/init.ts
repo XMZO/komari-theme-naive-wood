@@ -6,10 +6,12 @@ import type { MeInfo, PublicSettings } from '@/utils/api'
 import type { Client, KomariRpc, NodeStatus } from '@/utils/rpc'
 import { h } from 'vue'
 import LoginDialog from '@/components/LoginDialog.vue'
+import { withThemeSettingDefaults } from '@/settings/schema'
 import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { ApiError, getSharedApi } from '@/utils/api'
 import { getSharedRpc, isRpcAuthenticationError, RpcTransportError } from '@/utils/rpc'
+import { installThemePreviewBridge, isThemePreview } from '@/utils/themePreview'
 import { configureVisitorAudit, recordCurrentPageView } from '@/utils/visitorAudit'
 
 interface InitConfig {
@@ -152,10 +154,16 @@ class InitManager {
   }
 
   private applyBootstrapContext(context: { publicSettings: PublicSettings, userInfo: MeInfo }): void {
-    this.appStore.publicSettings = context.publicSettings
-    configureVisitorAudit(context.publicSettings.visitor_audit_enabled === true)
+    // 主题清单为 raw 类型，Komari 不再注入默认值，这里按设置定义补齐。
+    this.appStore.publicSettings = {
+      ...context.publicSettings,
+      theme_settings: withThemeSettingDefaults(context.publicSettings.theme_settings),
+    }
+    // 实时预览不记录访客事件。
+    configureVisitorAudit(!isThemePreview && context.publicSettings.visitor_audit_enabled === true)
     recordCurrentPageView()
     this.applyUserInfo(context.userInfo)
+    installThemePreviewBridge(this.appStore)
   }
 
   private applyUserInfo(userInfo: MeInfo): void {

@@ -49,6 +49,12 @@ This document applies to `/src` only. Keep changes aligned with the current Vue 
 - If a component needs remote data, prefer consuming shared store state or shared RPC helpers already exposed by `@/utils/*`.
 - Avoid embedding ad hoc parsing of theme settings inside components when the value can be normalized once in a store.
 
+## Theme settings page
+
+- `settings.html` and `src/settings/` are a separate entry: the Komari admin embeds it through the raw manifest configuration, inside a sandboxed same-origin iframe without downloads or top navigation.
+- Add or change a setting in `src/settings/schema.ts` only; keep stored formats unchanged so older theme versions read the same data.
+- The live preview loads `/?naive_preview=1`; `@/utils/themePreview` keeps preferences in memory there and applies drafts sent by the settings page.
+
 ## Naive UI globals
 
 - Naive UI provider setup lives in `@/components/Provider.vue`.

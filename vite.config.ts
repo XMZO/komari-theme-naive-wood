@@ -93,6 +93,8 @@ function komariThemeZip(): Plugin {
   }
 }
 
+// 主题短名决定 Komari 中的主题目录，设置页按它保存配置
+const themeManifest = require('./komari-theme.json')
 // 读取 package.json 获取版本号
 const packageJson = require('./package.json')
 
@@ -102,6 +104,7 @@ export default defineConfig({
   define: {
     __BUILD_VERSION__: JSON.stringify(packageJson.version),
     __BUILD_GIT_HASH__: JSON.stringify(getCommitHash()),
+    __THEME_SHORT__: JSON.stringify(themeManifest.short),
   },
   plugins: [
     vue(),
@@ -137,6 +140,11 @@ export default defineConfig({
     // 调整 chunk 大小警告阈值
     chunkSizeWarningLimit: 600,
     rollupOptions: {
+      // settings.html 是嵌入 Komari 后台的主题设置页
+      input: {
+        main: resolve(__dirname, 'index.html'),
+        settings: resolve(__dirname, 'settings.html'),
+      },
       output: {
         manualChunks: {
           'vue-vendor': ['vue', 'vue-router', 'pinia'],

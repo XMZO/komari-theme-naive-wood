@@ -1,8 +1,12 @@
+import type { ListViewColumn } from '@/settings/schema'
 import type { MeInfo, PublicSettings } from '@/utils/api'
 import type { ByteDecimalsConfig, UptimeFormat } from '@/utils/helper'
 import { usePreferredDark, useStorageAsync } from '@vueuse/core'
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { LIST_COLUMN_FALLBACK_WIDTHS as DEFAULT_LIST_COLUMN_WIDTHS, LIST_VIEW_COLUMN_KEYS as DEFAULT_LIST_VIEW_COLUMNS } from '@/settings/schema'
+import { parseBackgroundUrls } from '@/utils/backgroundImageProxy'
+import { preferenceStorage } from '@/utils/themePreview'
 
 type ThemeMode = 'auto' | 'light' | 'dark'
 type Lang = 'zh-CN' | 'en-US'
@@ -13,25 +17,6 @@ type CardMaterial = 'auto' | 'solid' | 'translucent' | 'acrylic' | 'liquid-glass
 type ResolvedCardMaterial = Exclude<CardMaterial, 'auto'>
 type LiquidGlassTint = 'auto' | 'transparent' | 'white' | 'black'
 type ResolvedLiquidGlassTint = Exclude<LiquidGlassTint, 'auto'>
-
-/** 默认的 List 视图列配置 */
-const DEFAULT_LIST_VIEW_COLUMNS = ['status', 'region', 'name', 'tags', 'uptime', 'os', 'cpu', 'mem', 'disk', 'traffic', 'rate'] as const
-type ListViewColumn = typeof DEFAULT_LIST_VIEW_COLUMNS[number]
-
-/** 默认的 List 视图列宽度配置 */
-const DEFAULT_LIST_COLUMN_WIDTHS: Record<string, string> = {
-  status: '76px',
-  region: '32px',
-  name: 'minmax(200px, 1fr)',
-  tags: '200px',
-  uptime: 'minmax(180px, 0.6fr)',
-  os: '120px',
-  cpu: '180px',
-  mem: '180px',
-  disk: '180px',
-  traffic: '180px',
-  rate: '140px',
-}
 
 /** 默认的字节精度配置 */
 const DEFAULT_BYTE_DECIMALS: ByteDecimalsConfig = {
@@ -49,19 +34,6 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, value))
 }
 
-// 背景地址可填多个，用空格、换行或中文逗号分隔；英文逗号仅在后面紧跟新地址时视为分隔，
-// 以免拆开 URL 自带的逗号参数。
-function parseBackgroundUrls(value: unknown): string[] {
-  if (typeof value !== 'string') {
-    return []
-  }
-  const urls = value
-    .split(/[\s，]+|,(?=\s*(?:https?:)?\/)/)
-    .map(url => url.trim())
-    .filter(Boolean)
-  return [...new Set(urls)]
-}
-
 // glass-0 ~ glass-48 已在 uno.config.ts 的 safelist 中预生成，可直接使用精确半径。
 function getBlurClass(radius: number): string {
   if (radius <= 0)
@@ -73,11 +45,11 @@ const useAppStore = defineStore('app', () => {
   const loading = ref<boolean>(true)
 
   // 使用 VueUse 的 useStorageAsync 实现自动持久化
-  const themeMode = useStorageAsync<ThemeMode>('themeMode', 'auto', localStorage)
+  const themeMode = useStorageAsync<ThemeMode>('themeMode', 'auto', preferenceStorage)
   const lang = ref<Lang>('zh-CN')
   const publicSettings = ref<PublicSettings>()
   const userInfo = ref<MeInfo>()
-  const nodeSelectedGroup = useStorageAsync<string>('nodeSelectedGroup', 'all', localStorage)
+  const nodeSelectedGroup = useStorageAsync<string>('nodeSelectedGroup', 'all', preferenceStorage)
   const isLoggedIn = ref<boolean>(false)
   const connectionError = ref<boolean>(false)
   const requireLogin = ref<boolean>(false)
@@ -86,7 +58,7 @@ const useAppStore = defineStore('app', () => {
   const homeScrollPosition = ref<number>(0)
 
   // 使用 null 表示未设置，等待主题配置加载后决定
-  const storedViewMode = useStorageAsync<NodeViewMode | null>('nodeViewMode', null, localStorage)
+  const storedViewMode = useStorageAsync<NodeViewMode | null>('nodeViewMode', null, preferenceStorage)
 
   // 计算属性：是否启用地球视图（关闭后隐藏入口并禁止渲染）
   const enableEarthView = computed<boolean>(() => {
