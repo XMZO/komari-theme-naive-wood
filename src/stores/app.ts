@@ -49,6 +49,19 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
   return Math.min(max, Math.max(min, value))
 }
 
+// 背景地址可填多个，用空格、换行或中文逗号分隔；英文逗号仅在后面紧跟新地址时视为分隔，
+// 以免拆开 URL 自带的逗号参数。
+function parseBackgroundUrls(value: unknown): string[] {
+  if (typeof value !== 'string') {
+    return []
+  }
+  const urls = value
+    .split(/[\s，]+|,(?=\s*(?:https?:)?\/)/)
+    .map(url => url.trim())
+    .filter(Boolean)
+  return [...new Set(urls)]
+}
+
 // glass-0 ~ glass-48 已在 uno.config.ts 的 safelist 中预生成，可直接使用精确半径。
 function getBlurClass(radius: number): string {
   if (radius <= 0)
@@ -640,28 +653,20 @@ const useAppStore = defineStore('app', () => {
     return 'image'
   })
 
-  const lightBackgroundUrl = computed<string>(() => {
-    const settings = publicSettings.value?.theme_settings
-    if (settings && typeof settings.lightBackgroundUrl === 'string') {
-      return settings.lightBackgroundUrl.trim()
-    }
-    return ''
+  const lightBackgroundUrls = computed<string[]>(() => {
+    return parseBackgroundUrls(publicSettings.value?.theme_settings?.lightBackgroundUrl)
   })
 
-  const darkBackgroundUrl = computed<string>(() => {
-    const settings = publicSettings.value?.theme_settings
-    if (settings && typeof settings.darkBackgroundUrl === 'string') {
-      return settings.darkBackgroundUrl.trim()
-    }
-    return ''
+  const darkBackgroundUrls = computed<string[]>(() => {
+    return parseBackgroundUrls(publicSettings.value?.theme_settings?.darkBackgroundUrl)
   })
 
-  // 计算属性：当前主题模式下的背景 URL
-  const currentBackgroundUrl = computed<string>(() => {
+  // 计算属性：当前主题模式下可用的背景 URL 列表
+  const currentBackgroundUrls = computed<string[]>(() => {
     if (isDark.value) {
-      return darkBackgroundUrl.value
+      return darkBackgroundUrls.value
     }
-    return lightBackgroundUrl.value
+    return lightBackgroundUrls.value
   })
 
   const backgroundBlur = computed<number>(() => {
@@ -891,9 +896,9 @@ const useAppStore = defineStore('app', () => {
     policeUrl,
     backgroundEnabled,
     backgroundType,
-    lightBackgroundUrl,
-    darkBackgroundUrl,
-    currentBackgroundUrl,
+    lightBackgroundUrls,
+    darkBackgroundUrls,
+    currentBackgroundUrls,
     backgroundBlur,
     backgroundOverlay,
     showSaveBackgroundButton,

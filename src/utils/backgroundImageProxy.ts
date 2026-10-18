@@ -4,11 +4,18 @@ const LEGACY_SERVICE_WORKER_NAME = '/komari-background-sw.js'
 const LEGACY_CACHE_PREFIX = 'komari-background-cache-'
 const FETCH_TIMEOUT_MS = 8000
 const ALCY_RANDOM_PATH = /^\/(?:ycy|moez|ai|ysz|pivix|pc|moe|fj|bd|ys|acg|mp|moemp|ysmp|aimp|tx|lai|xhl)\/?$/
-// alcy 自适应接口按请求方 User-Agent 选横/竖图，而图片代理用的是自己的 UA（总拿到横图）。
-const ALCY_ADAPTIVE_PATHS: Record<string, { landscape: string, portrait: string }> = {
-  ycy: { landscape: 'pc', portrait: 'mp' },
-  moez: { landscape: 'moe', portrait: 'moemp' },
-  ysz: { landscape: 'ys', portrait: 'ysmp' },
+// 自适应随机图接口按请求方 User-Agent 选横/竖图，图片代理用的是自己的 UA（总拿到横图），
+// 浏览器直连时也只看设备类型。统一按视口方向换成固定的横/竖接口。
+// dropQuery：原接口跳转时会丢弃查询参数（如 yppp 的 api.php 不处理 ?return=），映射后同样丢弃。
+const ADAPTIVE_BACKGROUND_ENDPOINTS: Record<string, Record<string, { landscape: string, portrait: string, dropQuery?: boolean }>> = {
+  't.alcy.cc': {
+    '/ycy': { landscape: '/pc', portrait: '/mp' },
+    '/moez': { landscape: '/moe', portrait: '/moemp' },
+    '/ysz': { landscape: '/ys', portrait: '/ysmp' },
+  },
+  'api.yppp.net': {
+    '/api.php': { landscape: '/pc.php', portrait: '/pe.php', dropQuery: true },
+  },
 }
 
 export type PreparedBackgroundImage
@@ -88,21 +95,32 @@ function createBackgroundImageRequestUrl(sourceUrl: string) {
     (targetUrl.protocol === 'http:' || targetUrl.protocol === 'https:')
     && shouldUseClientJsonResolver(targetUrl.toString())
   ) {
-    applyAlcyOrientation(targetUrl)
     targetUrl.searchParams.set('__komari_bg', createRequestKey())
   }
   return targetUrl.toString()
 }
 
-// 在浏览器侧按视口方向换成固定的横/竖接口，经代理取到的图才与屏幕方向一致。
-function applyAlcyOrientation(url: URL) {
-  const name = url.pathname.replace(/^\/|\/$/g, '')
-  const variants = ALCY_ADAPTIVE_PATHS[name]
+/** 把已知的自适应随机图接口按当前视口方向换成固定的横图或竖图接口；其他地址原样返回。 */
+export function applyAdaptiveOrientation(sourceUrl: string) {
+  let url: URL
+  try {
+    url = new URL(sourceUrl, window.location.href)
+  }
+  catch {
+    return sourceUrl
+  }
+  const trailingSlash = url.pathname.length > 1 && url.pathname.endsWith('/')
+  const path = trailingSlash ? url.pathname.slice(0, -1) : url.pathname
+  const variants = ADAPTIVE_BACKGROUND_ENDPOINTS[url.hostname]?.[path]
   if (!variants) {
-    return
+    return sourceUrl
   }
   const portrait = window.matchMedia('(orientation: portrait)').matches
-  url.pathname = `/${portrait ? variants.portrait : variants.landscape}${url.pathname.endsWith('/') ? '/' : ''}`
+  url.pathname = `${portrait ? variants.portrait : variants.landscape}${trailingSlash ? '/' : ''}`
+  if (variants.dropQuery) {
+    url.search = ''
+  }
+  return url.toString()
 }
 
 async function resolveClientSelectedImageUrl(sourceUrl: string) {

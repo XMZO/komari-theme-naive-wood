@@ -4,6 +4,7 @@ import { computed, onUnmounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAppStore } from '@/stores/app'
 import {
+  applyAdaptiveOrientation,
   cleanupLegacyBackgroundProxy,
   prepareBackgroundImage,
 } from '@/utils/backgroundImageProxy'
@@ -46,8 +47,33 @@ const showBackground = computed(() => {
   return appStore.backgroundEnabled
 })
 
-// 当前背景 URL
-const currentUrl = computed(() => appStore.currentBackgroundUrl)
+// 当前背景 URL：配置了多个地址时每次加载随机排序，当前地址失败再依次换下一个。
+const sourceOrder = ref<string[]>([])
+const sourceIndex = ref(0)
+const currentUrl = computed(() => sourceOrder.value[sourceIndex.value] ?? '')
+
+function shuffleUrls(urls: string[]) {
+  const shuffled = [...urls]
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!]
+  }
+  return shuffled
+}
+
+// 按内容比较，设置刷新得到同一组地址时不重新抽取，保持当前背景稳定。
+watch(() => appStore.currentBackgroundUrls.join('\n'), () => {
+  sourceOrder.value = shuffleUrls(appStore.currentBackgroundUrls)
+  sourceIndex.value = 0
+}, { immediate: true })
+
+function tryNextSource() {
+  if (sourceIndex.value + 1 >= sourceOrder.value.length) {
+    return false
+  }
+  sourceIndex.value += 1
+  return true
+}
 
 // 背景类型
 const backgroundType = computed(() => appStore.backgroundType)
@@ -120,12 +146,14 @@ function resetImageState() {
   imageDirectFallbackAttempted.value = false
 }
 
-async function loadImage(url: string) {
+async function loadImage(sourceUrl: string) {
   const requestId = ++imageRequestId
   resetImageState()
   isLoaded.value = false
   hasError.value = false
 
+  // 直连和可读代理两条路径都按视口方向取图。
+  const url = applyAdaptiveOrientation(sourceUrl)
   if (!appStore.showSaveBackgroundButton) {
     imageSourceUrl.value = url
     imageDisplayUrl.value = url
@@ -219,6 +247,10 @@ function handleImageError() {
     return
   }
 
+  if (tryNextSource()) {
+    return
+  }
+
   isLoaded.value = false
   hasError.value = true
 }
@@ -232,6 +264,9 @@ function handleVideoLoaded() {
 }
 
 function handleVideoError() {
+  if (tryNextSource()) {
+    return
+  }
   isLoaded.value = false
   hasError.value = true
 }
