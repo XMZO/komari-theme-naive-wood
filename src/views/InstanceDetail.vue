@@ -7,7 +7,7 @@ import { useAppStore } from '@/stores/app'
 import { useNodesStore } from '@/stores/nodes'
 import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat } from '@/utils/helper'
 import { getOSImage, getOSName } from '@/utils/osImageHelper'
-import { getRegionCode, getRegionDisplayName, resolveNodeRegion } from '@/utils/regionHelper'
+import { getRegionDisplayName, getRegionFlagSrc, resolveNodeRegion } from '@/utils/regionHelper'
 
 // 异步组件：按需加载图表，减少首屏体积
 const LoadChart = defineAsyncComponent(() => import('@/components/LoadChart.vue'))
@@ -108,7 +108,7 @@ const hasLiquidGlass = computed(() => appStore.isLiquidGlassScopeEnabled('cards'
         </NButton>
         <div class="text-lg font-bold flex gap-2 items-center">
           <NIcon size="24">
-            <img :src="`/images/flags/${getRegionCode(effectiveRegion)}.svg`" :alt="getRegionDisplayName(effectiveRegion)">
+            <img :src="getRegionFlagSrc(effectiveRegion)" :alt="getRegionDisplayName(effectiveRegion)">
           </NIcon>
           <NText>
             {{ data.name }}

@@ -10,7 +10,7 @@ import TrafficProgress from '@/components/TrafficProgress.vue'
 import { useAppStore } from '@/stores/app'
 import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat, getStatus } from '@/utils/helper'
 import { getOSImage, getOSName } from '@/utils/osImageHelper'
-import { getRegionCode, getRegionDisplayName, isNodeFlagOverrideTag, resolveNodeRegion } from '@/utils/regionHelper'
+import { getRegionDisplayName, getRegionFlagSrc, isNodeFlagOverrideTag, resolveNodeRegion } from '@/utils/regionHelper'
 import { formatPriceWithCycle, getDaysUntilExpired, getExpireStatus, parseTags } from '@/utils/tagHelper'
 
 const props = defineProps<{
@@ -219,8 +219,7 @@ function getEffectiveRegion(node: NodeData): string {
 
 // 计算国旗图标路径
 function getFlagSrc(node: NodeData): string {
-  const code = getRegionCode(getEffectiveRegion(node))
-  return `/images/flags/${code}.svg`
+  return getRegionFlagSrc(getEffectiveRegion(node))
 }
 
 function getNodeDetailLocation(node: NodeData): RouteLocationRaw {

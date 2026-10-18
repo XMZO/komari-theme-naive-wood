@@ -1624,6 +1624,19 @@ export function getRegionCode(regionEmoji: string): string {
   return regionInfo.code
 }
 
+const regionFlagCodes = new Set(Object.values(emojiToRegionMap).map(info => info.code))
+
+/**
+ * 获取地区旗帜路径
+ * 空地区或无法识别的地区回退到 UN，避免请求不存在的旗帜文件。
+ * @param region 地区emoji或地区代码
+ * @returns 旗帜路径（如：/images/flags/HK.svg）
+ */
+export function getRegionFlagSrc(region: string): string {
+  const code = getRegionCode(region).toUpperCase()
+  return `/images/flags/${regionFlagCodes.has(code) ? code : 'UN'}.svg`
+}
+
 /**
  * 根据地区代码获取emoji
  * @param code 地区代码（如：HK, CN, US）

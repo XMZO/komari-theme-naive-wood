@@ -10,7 +10,7 @@ import TrafficProgress from '@/components/TrafficProgress.vue'
 import { useAppStore } from '@/stores/app'
 import { formatBytesPerSecondWithConfig, formatBytesWithConfig, formatDateTime, formatUptimeWithFormat, getStatus } from '@/utils/helper'
 import { getOSImage, getOSName } from '@/utils/osImageHelper'
-import { getRegionCode, getRegionDisplayName, isNodeFlagOverrideTag, resolveNodeRegion } from '@/utils/regionHelper'
+import { getRegionDisplayName, getRegionFlagSrc, isNodeFlagOverrideTag, resolveNodeRegion } from '@/utils/regionHelper'
 import { formatPriceWithCycle, getDaysUntilExpired, getExpireStatus, getExpireStatusHexColor, parseTags } from '@/utils/tagHelper'
 
 const props = defineProps<{
@@ -182,7 +182,7 @@ function handleCardClick() {
         <template #header>
           <div class="flex gap-2 min-w-0 items-center">
             <NIcon class="shrink-0">
-              <img :src="`/images/flags/${getRegionCode(effectiveRegion)}.svg`" :alt="getRegionDisplayName(effectiveRegion)">
+              <img :src="getRegionFlagSrc(effectiveRegion)" :alt="getRegionDisplayName(effectiveRegion)">
             </NIcon>
             <!-- 自定义标签显示在节点名前（仅当 tagsInSeparateRow 为 false 时） -->
             <div v-if="customTags.length > 0 && !appStore.tagsInSeparateRow" class="has-tags flex shrink-0 flex-wrap gap-1 items-center">
@@ -244,7 +244,7 @@ function handleCardClick() {
             <div class="node-offline-overlay__content">
               <div class="node-offline-overlay__header flex gap-2 min-w-0 items-center justify-center">
                 <NIcon class="shrink-0">
-                  <img :src="`/images/flags/${getRegionCode(effectiveRegion)}.svg`" :alt="getRegionDisplayName(effectiveRegion)">
+                  <img :src="getRegionFlagSrc(effectiveRegion)" :alt="getRegionDisplayName(effectiveRegion)">
                 </NIcon>
                 <NText class="text-base font-semibold text-center break-all">
                   {{ props.node.name }}

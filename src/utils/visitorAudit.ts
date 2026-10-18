@@ -2,6 +2,8 @@ import type { RouteLocationNormalized, RouteLocationNormalizedLoaded } from 'vue
 import type { VisitorAuditEvent } from '@/utils/rpc'
 import { getSharedRpc, isRpcMethodUnavailable } from '@/utils/rpc'
 
+// 访客审计仅 Komari 1.2.7–1.5.1 提供；1.6.0 起后端移除了该方法和 visitor_audit_enabled，
+// 拿不到开关时这里保持关闭，新旧版本无需区分处理。
 let enabled = false
 let methodUnavailableUntil = 0
 let lastPageKey = ''
