@@ -18,8 +18,9 @@ function detectThemePreview(): boolean {
     return false
   }
   try {
+    // 设置页可能运行在 about:srcdoc 中，其 location.origin 为 "null"，需比较文档实际来源。
     return new URLSearchParams(window.location.search).has(PREVIEW_QUERY_KEY)
-      && window.parent.location.origin === window.location.origin
+      && window.parent.origin === window.origin
   }
   catch {
     return false
@@ -52,7 +53,7 @@ export function installThemePreviewBridge(appStore: ReturnType<typeof useAppStor
   bridgeInstalled = true
 
   window.addEventListener('message', (event: MessageEvent<PreviewMessage>) => {
-    if (event.source !== window.parent || event.origin !== window.location.origin) {
+    if (event.source !== window.parent || event.origin !== window.origin) {
       return
     }
     const message = event.data
@@ -84,5 +85,5 @@ export function installThemePreviewBridge(appStore: ReturnType<typeof useAppStor
     }
   })
 
-  window.parent.postMessage({ type: PREVIEW_MESSAGE_READY } satisfies PreviewMessage, window.location.origin)
+  window.parent.postMessage({ type: PREVIEW_MESSAGE_READY } satisfies PreviewMessage, window.origin)
 }

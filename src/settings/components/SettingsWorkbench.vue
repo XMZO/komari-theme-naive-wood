@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import type { DropdownOption } from 'naive-ui'
 import type { SettingField, SettingGroup } from '../schema'
-import { useEventListener, useWindowSize } from '@vueuse/core'
+import { useEventListener, useStorage, useWindowSize } from '@vueuse/core'
 import { NButton, NDrawer, NDrawerContent, NDropdown, NEmpty, NInput, NResult, NSpin, useDialog, useMessage } from 'naive-ui'
-import { computed, h, nextTick, onMounted, ref } from 'vue'
+import { computed, h, nextTick, onMounted, ref, watch } from 'vue'
 import { useDraft } from '../context'
 import { SETTING_FIELD_MAP, SETTING_GROUPS, THEME_SETTING_DEFAULTS } from '../schema'
 import PreviewPane from './PreviewPane.vue'
 import SettingRow from './SettingRow.vue'
-import SettingSectionCard from './SettingSectionCard.vue'
+import SettingsGroupView from './SettingsGroupView.vue'
 import TransferModal from './TransferModal.vue'
 
 defineProps<{
@@ -29,7 +29,10 @@ const transferMode = ref<'export' | 'import' | null>(null)
 const exportText = ref('')
 
 const { width } = useWindowSize()
-const showPreviewColumn = computed(() => width.value >= 1280)
+// 实时预览可以关闭，关闭后不加载前台，设置页更轻快；选择会被记住
+const previewEnabled = useStorage('naive-settings-preview-enabled', true)
+const wideLayout = computed(() => width.value >= 1280)
+const showPreviewColumn = computed(() => wideLayout.value && previewEnabled.value)
 const navAsTabs = computed(() => width.value < 820)
 
 const activeGroup = computed(() => SETTING_GROUPS.find(group => group.id === activeGroupId.value) ?? SETTING_GROUPS[0]!)
@@ -41,9 +44,6 @@ function groupKeys(group: SettingGroup) {
 const dirtyGroupIds = computed(() => new Set(SETTING_GROUPS
   .filter(group => groupKeys(group).some(key => dirtyKeySet.value.has(key)))
   .map(group => group.id)))
-
-const activeGroupModified = computed(() => groupKeys(activeGroup.value)
-  .some(key => !Object.is(draft.value[key], THEME_SETTING_DEFAULTS[key])))
 
 const searchResults = computed(() => {
   const keyword = query.value.trim().toLowerCase()
@@ -73,12 +73,20 @@ const searchResults = computed(() => {
 
 const reloadHint = computed(() => dirtyKeys.value.some(key => SETTING_FIELD_MAP.get(key)?.reloadRequired))
 
-// 编辑卡片或列表分组时，预览切换到对应视图
-const previewViewMode = computed(() => {
-  if (searchResults.value) {
-    return null
+// 修改了卡片或列表分组的设置时，预览才切换到对应视图。
+// 节点较多时切换视图会整页重绘，单纯浏览分组不应触发。
+const VIEW_GROUP_KEYS = {
+  card: new Set(groupKeys(SETTING_GROUPS.find(group => group.id === 'card')!)),
+  list: new Set(groupKeys(SETTING_GROUPS.find(group => group.id === 'list')!)),
+} as const
+const previewViewMode = ref<'card' | 'list' | null>(null)
+watch(draftApi.lastEditedKeys, (keys) => {
+  if (keys.some(key => VIEW_GROUP_KEYS.list.has(key))) {
+    previewViewMode.value = 'list'
   }
-  return activeGroup.value.id === 'list' ? 'list' : activeGroup.value.id === 'card' ? 'card' : null
+  else if (keys.some(key => VIEW_GROUP_KEYS.card.has(key))) {
+    previewViewMode.value = 'card'
+  }
 })
 
 function selectGroup(id: string) {
@@ -226,7 +234,20 @@ async function focusField(group: SettingGroup, field: SettingField) {
         <NButton v-if="dirtyKeys.length > 0" quaternary size="small" @click="discard">
           撤销
         </NButton>
-        <NButton v-if="!showPreviewColumn" secondary size="small" @click="previewDrawer = true">
+        <NButton
+          v-if="wideLayout"
+          secondary
+          size="small"
+          :title="previewEnabled ? '隐藏实时预览' : '显示实时预览'"
+          :type="previewEnabled ? 'primary' : 'default'"
+          @click="previewEnabled = !previewEnabled"
+        >
+          <template #icon>
+            <span :class="previewEnabled ? 'i-icon-park-outline-preview-open' : 'i-icon-park-outline-preview-close'" />
+          </template>
+          预览
+        </NButton>
+        <NButton v-else secondary size="small" title="打开实时预览" @click="previewDrawer = true">
           <template #icon>
             <span class="i-icon-park-outline-preview-open" />
           </template>
@@ -331,25 +352,10 @@ async function focusField(group: SettingGroup, field: SettingField) {
             <NEmpty v-else class="content__empty" description="没有找到匹配的设置" />
           </template>
 
-          <template v-else>
-            <div class="content__header">
-              <div>
-                <h2 class="content__title">
-                  {{ activeGroup.title }}
-                </h2>
-                <p class="content__description">
-                  {{ activeGroup.description }}
-                </p>
-              </div>
-              <NButton v-if="activeGroupModified" quaternary size="small" @click="draftApi.resetToDefault(groupKeys(activeGroup))">
-                <template #icon>
-                  <span class="i-icon-park-outline-return" />
-                </template>
-                恢复本组默认
-              </NButton>
-            </div>
-            <SettingSectionCard v-for="(section, index) in activeGroup.sections" :key="`${activeGroup.id}-${index}`" :section="section" />
-          </template>
+          <!-- 分组视图缓存起来，切回已打开的分组时无需重新创建控件 -->
+          <KeepAlive v-else>
+            <SettingsGroupView :key="activeGroup.id" :group="activeGroup" />
+          </KeepAlive>
         </div>
       </main>
 
@@ -358,7 +364,7 @@ async function focusField(group: SettingGroup, field: SettingField) {
       </aside>
     </div>
 
-    <NDrawer v-if="!showPreviewColumn" v-model:show="previewDrawer" placement="right" :width="Math.min(960, width - 24)">
+    <NDrawer v-if="!wideLayout" v-model:show="previewDrawer" placement="right" :width="Math.min(960, width - 24)">
       <NDrawerContent body-content-style="height: 100%; padding: 12px;" closable>
         <PreviewPane :host-dark="hostDark" :reload-hint="reloadHint" :settings="draft" :view-mode="previewViewMode" />
       </NDrawerContent>
@@ -543,7 +549,6 @@ async function focusField(group: SettingGroup, field: SettingField) {
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  scroll-behavior: smooth;
 }
 
 .content__inner {

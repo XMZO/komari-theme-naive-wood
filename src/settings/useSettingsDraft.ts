@@ -33,6 +33,8 @@ export function useSettingsDraft() {
   const draft = ref<Record<string, SettingValue>>({ ...THEME_SETTING_DEFAULTS })
   // 设置定义之外的已存项（例如更新版本主题写入的配置），保存时原样保留。
   let extras: SettingsRecord = {}
+  // 最近一次由用户编辑的设置项；加载与撤销不计入
+  const lastEditedKeys = ref<readonly string[]>([])
 
   const dirtyKeys = computed(() => SETTING_FIELDS
     .filter(field => !Object.is(draft.value[field.key], saved.value[field.key]))
@@ -67,15 +69,19 @@ export function useSettingsDraft() {
 
   function setValue(key: string, value: SettingValue) {
     draft.value[key] = value
+    lastEditedKeys.value = [key]
   }
 
   function resetToDefault(keys: Iterable<string>) {
+    const edited: string[] = []
     for (const key of keys) {
       const fallback = THEME_SETTING_DEFAULTS[key]
       if (fallback !== undefined) {
         draft.value[key] = fallback
+        edited.push(key)
       }
     }
+    lastEditedKeys.value = edited
   }
 
   function discard() {
@@ -112,7 +118,7 @@ export function useSettingsDraft() {
     }
     const source = parsed.format === EXPORT_FORMAT && isRecord(parsed.settings) ? parsed.settings : parsed
     const ignored: string[] = []
-    let applied = 0
+    const applied: string[] = []
     for (const [key, value] of Object.entries(source)) {
       const fallback = THEME_SETTING_DEFAULTS[key]
       if (fallback === undefined || typeof value !== typeof fallback) {
@@ -120,9 +126,10 @@ export function useSettingsDraft() {
         continue
       }
       draft.value[key] = value as SettingValue
-      applied++
+      applied.push(key)
     }
-    return { applied, ignored }
+    lastEditedKeys.value = applied
+    return { applied: applied.length, ignored }
   }
 
   return {
@@ -134,6 +141,7 @@ export function useSettingsDraft() {
     draft,
     dirtyKeys,
     dirtyKeySet,
+    lastEditedKeys,
     load,
     setValue,
     resetToDefault,

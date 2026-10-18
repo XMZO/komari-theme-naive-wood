@@ -117,7 +117,8 @@ function createBackgroundImageRequestUrl(sourceUrl: string) {
 function findAdaptiveEndpoint(sourceUrl: string) {
   let url: URL
   try {
-    url = new URL(sourceUrl, window.location.href)
+    // 设置页运行在 about:srcdoc 时 location.href 不能作为基准，baseURI 会继承后台页面地址。
+    url = new URL(sourceUrl, document.baseURI)
   }
   catch {
     return null

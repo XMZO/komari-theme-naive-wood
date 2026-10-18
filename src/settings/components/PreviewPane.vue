@@ -34,6 +34,8 @@ const scheme = ref<PreviewColorScheme>(props.hostDark ? 'dark' : 'light')
 const frame = ref<HTMLIFrameElement | null>(null)
 const stage = ref<HTMLElement | null>(null)
 const ready = ref(false)
+// 等设置页渲染完、浏览器空闲时再加载前台，避免和设置页抢首屏资源
+const started = ref(false)
 const frameKey = ref(0)
 const src = `/?${PREVIEW_QUERY_KEY}=1`
 
@@ -66,7 +68,8 @@ const frameHeight = computed(() => {
 })
 
 function post(message: PreviewMessage) {
-  frame.value?.contentWindow?.postMessage(message, window.location.origin)
+  // 设置页可能运行在 about:srcdoc 中，location.origin 为 "null"，用文档实际来源。
+  frame.value?.contentWindow?.postMessage(message, window.origin)
 }
 
 function postSettings() {
@@ -85,7 +88,7 @@ function postViewMode() {
 }
 
 function handleMessage(event: MessageEvent<PreviewMessage>) {
-  if (event.source !== frame.value?.contentWindow || event.origin !== window.location.origin) {
+  if (event.source !== frame.value?.contentWindow || event.origin !== window.origin) {
     return
   }
   if (event.data?.type === PREVIEW_MESSAGE_READY) {
@@ -96,11 +99,12 @@ function handleMessage(event: MessageEvent<PreviewMessage>) {
   }
 }
 
+// 拖动滑块等连续修改时合并推送，节点较多时每次推送都会让预览整页重绘
 const postSettingsDebounced = useDebounceFn(() => {
   if (ready.value) {
     postSettings()
   }
-}, 120)
+}, 200)
 
 watch(() => props.settings, postSettingsDebounced, { deep: true })
 watch(scheme, () => {
@@ -110,11 +114,13 @@ watch(scheme, () => {
 })
 // 切换设备时重新加载，背景横竖图等只在加载时决定的内容才会按新尺寸生效
 watch(device, () => reload())
-watch(() => props.viewMode, () => {
+// 快速切换分组时只在停下后切换一次视图，避免预览反复整页重绘
+const postViewModeDebounced = useDebounceFn(() => {
   if (ready.value) {
     postViewMode()
   }
-})
+}, 300)
+watch(() => props.viewMode, postViewModeDebounced)
 watch(() => props.hostDark, (dark) => {
   scheme.value = dark ? 'dark' : 'light'
 })
@@ -132,7 +138,19 @@ function openSite() {
   window.open('/', '_blank', 'noopener')
 }
 
-onMounted(() => window.addEventListener('message', handleMessage))
+onMounted(() => {
+  window.addEventListener('message', handleMessage)
+  const start = () => {
+    started.value = true
+  }
+  // Safari 没有 requestIdleCallback
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(start, { timeout: 1000 })
+  }
+  else {
+    setTimeout(start, 300)
+  }
+})
 onBeforeUnmount(() => window.removeEventListener('message', handleMessage))
 </script>
 
@@ -172,6 +190,7 @@ onBeforeUnmount(() => window.removeEventListener('message', handleMessage))
         :style="{ width: `${frameWidth * scale}px`, height: `${frameHeight * scale}px` }"
       >
         <iframe
+          v-if="started"
           :key="frameKey"
           ref="frame"
           class="preview__frame"
@@ -238,9 +257,16 @@ onBeforeUnmount(() => window.removeEventListener('message', handleMessage))
   gap: 4px;
 }
 
+// 单选按钮的文字容器是行内元素，图标需要放进 flex 容器才能垂直居中
+.preview__tools :deep(.n-radio-button .n-radio__label) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
 .preview__device-icon {
-  display: block;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .preview__hint {

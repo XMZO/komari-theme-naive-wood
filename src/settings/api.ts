@@ -7,6 +7,18 @@ export interface LoadedThemeSettings {
   settings: SettingsRecord
 }
 
+interface PrefetchedResponse {
+  ok: boolean
+  status: number
+  text: string
+}
+
+declare global {
+  interface Window {
+    __NAIVE_SETTINGS_PREFETCH__?: Array<Promise<PrefetchedResponse | null>>
+  }
+}
+
 export class SettingsRequestError extends Error {
   readonly status: number
 
@@ -21,9 +33,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
+async function request(path: string, init: RequestInit = {}): Promise<PrefetchedResponse> {
   const response = await fetch(path, { credentials: 'same-origin', cache: 'no-store', ...init })
-  const text = await response.text()
+  return { ok: response.ok, status: response.status, text: await response.text() }
+}
+
+function parseResponse(response: PrefetchedResponse): unknown {
+  const { text } = response
   let body: unknown = null
   try {
     body = text ? JSON.parse(text) : null
@@ -45,8 +61,16 @@ async function requestJson(path: string, init: RequestInit = {}): Promise<unknow
   return body
 }
 
+async function requestJson(path: string, init: RequestInit = {}): Promise<unknown> {
+  return parseResponse(await request(path, init))
+}
+
 export async function loadThemeSettings(): Promise<LoadedThemeSettings> {
-  const [publicInfo, me] = await Promise.all([requestJson('/api/public'), requestJson('/api/me')])
+  // 页面内联脚本提前发出的请求只用一次，重试时重新请求
+  const prefetch = window.__NAIVE_SETTINGS_PREFETCH__
+  window.__NAIVE_SETTINGS_PREFETCH__ = undefined
+  const load = async (index: number, path: string) => parseResponse((await prefetch?.[index]) ?? await request(path))
+  const [publicInfo, me] = await Promise.all([load(0, '/api/public'), load(1, '/api/me')])
   const info = isRecord(publicInfo) ? publicInfo : {}
   return {
     theme: typeof info.theme === 'string' ? info.theme : '',

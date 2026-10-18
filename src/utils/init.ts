@@ -14,6 +14,8 @@ import { getSharedRpc, isRpcAuthenticationError, RpcTransportError } from '@/uti
 import { installThemePreviewBridge, isThemePreview } from '@/utils/themePreview'
 import { configureVisitorAudit, recordCurrentPageView } from '@/utils/visitorAudit'
 
+const PREVIEW_POLL_INTERVAL = 30_000
+
 interface InitConfig {
   wsReconnectInterval?: number
   wsMaxReconnectAttempts?: number
@@ -64,10 +66,9 @@ class InitManager {
 
   private getPollInterval(): number {
     const interval = this.appStore.publicSettings?.theme_settings?.dataUpdateInterval
-    if (typeof interval === 'number' && interval >= 1 && interval <= 60) {
-      return interval * 1000
-    }
-    return 3000
+    const pollInterval = typeof interval === 'number' && interval >= 1 && interval <= 60 ? interval * 1000 : 3000
+    // 实时预览与设置页共用主线程，降低刷新频率，避免节点较多时拖慢设置页。
+    return isThemePreview ? Math.max(pollInterval, PREVIEW_POLL_INTERVAL) : pollInterval
   }
 
   private beginLifecycleOperation(): number {

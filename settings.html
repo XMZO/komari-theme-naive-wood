@@ -6,6 +6,20 @@
     <title>Naive 主题设置</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light dark" />
+    <script>
+      // 脚本包下载期间先读取设置，省去一次串行等待；设置页首次加载时直接使用结果
+      window.__NAIVE_SETTINGS_PREFETCH__ = ['/api/public', '/api/me'].map(function (path) {
+        return fetch(path, { credentials: 'same-origin', cache: 'no-store' })
+          .then(function (response) {
+            return response.text().then(function (text) {
+              return { ok: response.ok, status: response.status, text: text }
+            })
+          })
+          .catch(function () {
+            return null
+          })
+      })
+    </script>
 
     <link
       rel="stylesheet"

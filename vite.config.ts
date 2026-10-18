@@ -60,6 +60,14 @@ function komariThemeZip(): Plugin {
         return
       }
 
+      // 把构建好的设置页直接写入清单的 raw 配置：后台打开主题设置时无需再跳转并请求一次 settings.html。
+      // 仓库中的清单保留跳转到 settings.html 的壳，未打包时仍可使用。
+      const settingsHtmlPath = resolve(distDir, 'settings.html')
+      const manifest = JSON.parse(fs.readFileSync(themeJsonPath, 'utf-8'))
+      if (manifest.configuration?.type === 'raw' && existsSync(settingsHtmlPath)) {
+        manifest.configuration.data = fs.readFileSync(settingsHtmlPath, 'utf-8')
+      }
+
       const output = fs.createWriteStream(outputPath)
       const archive = archiver('zip', { zlib: { level: 9 } })
 
@@ -77,9 +85,7 @@ function komariThemeZip(): Plugin {
 
         archive.pipe(output)
 
-        if (existsSync(themeJsonPath)) {
-          archive.file(themeJsonPath, { name: 'komari-theme.json' })
-        }
+        archive.append(`${JSON.stringify(manifest, null, 2)}\n`, { name: 'komari-theme.json' })
 
         if (existsSync(previewPath)) {
           archive.file(previewPath, { name: 'preview.png' })
